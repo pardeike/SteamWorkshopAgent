@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SteamWorkshopAgent/SteamWorkshopAgent.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SteamWorkshopAgent.Tests/SteamWorkshopAgent.Tests.csproj" />
+  </Folder>
+</Solution>

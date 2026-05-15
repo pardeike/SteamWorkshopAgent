@@ -1,0 +1,10 @@
+bin/
+obj/
+TestResults/
+.DS_Store
+
+src/**/bin/
+src/**/obj/
+tests/**/bin/
+tests/**/obj/
+
