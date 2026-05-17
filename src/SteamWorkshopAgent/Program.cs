@@ -24,6 +24,7 @@ public static class Program
         builder.Services.AddSingleton<ModInspector>();
         builder.Services.AddSingleton<GitHubReleaseReader>();
         builder.Services.AddSingleton<WorkshopPlanner>();
+        builder.Services.AddSingleton<WorkshopTagUpdater>();
         builder.Services.AddSingleton<WorkshopPublisher>();
 
         builder.Services

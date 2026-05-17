@@ -2,6 +2,20 @@ namespace SteamWorkshopAgent;
 
 public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseReader releaseReader)
 {
+    private static readonly IReadOnlyDictionary<string, string> VisibilityValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["0"] = "0",
+        ["public"] = "0",
+        ["1"] = "1",
+        ["friends"] = "1",
+        ["friends-only"] = "1",
+        ["friendsonly"] = "1",
+        ["2"] = "2",
+        ["private"] = "2",
+        ["3"] = "3",
+        ["unlisted"] = "3"
+    };
+
     public async Task<WorkshopReleasePlan> CreateReleasePlanAsync(
         string repoPath,
         string tag,
@@ -10,6 +24,9 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
         string? contentFolderOverride = null)
     {
         var mod = await modInspector.InspectAsync(repoPath);
+        if (!mod.HasBuildProject)
+            throw new InvalidOperationException("Release publishing requires a source repository with Directory.Build.props and a .csproj. Use new-mod for an already-built mod folder.");
+
         var release = await releaseReader.ReadAsync(mod.RepoPath, tag);
         var runDir = runDirectory ?? AgentPaths.NewRunDirectory(mod.ModFileName, tag);
         var stagingRoot = Path.Combine(runDir, "mods");
@@ -26,7 +43,7 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
             {
                 new ValidationIssue(
                     "steamcmd_tags_preserved",
-                    "SteamCMD workshop_build_item does not reliably document RimWorld-style tag updates; V1 preserves existing Workshop tags instead of attempting to rewrite them.",
+                    "SteamCMD workshop_build_item is used for content upload only. Confirmed publish runs submit Workshop tags separately through the local Steamworks tag updater.",
                     "info")
             })
             .ToList();
@@ -46,6 +63,53 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
             updateDescription,
             TagsPreserved: true,
             intendedTags,
+            issues);
+    }
+
+    public async Task<WorkshopNewModPlan> CreateNewModPlanAsync(
+        string repoPath,
+        string visibility = "private",
+        string changeNote = "Initial upload",
+        string? runDirectory = null,
+        string? contentFolderOverride = null)
+    {
+        var mod = await modInspector.InspectAsync(repoPath);
+        var normalizedVisibility = NormalizeVisibility(visibility);
+        var runDir = runDirectory ?? AgentPaths.NewRunDirectory(mod.ModFileName, "new-mod");
+        var stagingRoot = Path.Combine(runDir, "mods");
+        var contentFolder = contentFolderOverride ?? (mod.HasBuildProject ? Path.Combine(stagingRoot, mod.ModFileName) : mod.RepoPath);
+        var previewFile = Path.Combine(contentFolder, "About", "Preview.png");
+        var vdfPath = Path.Combine(runDir, "workshop.vdf");
+        var tags = CreateDefaultTags(mod);
+
+        var fields = CreateNewModVdfFields(mod, contentFolder, previewFile, normalizedVisibility, changeNote);
+        var vdfContent = VdfWriter.WriteWorkshopItem(fields, tags);
+
+        var validationPreviewPath = File.Exists(previewFile) ? previewFile : mod.PreviewImagePath ?? previewFile;
+        var issues = Validation.ValidateForWorkshop(
+                mod,
+                validationPreviewPath,
+                contentFolder,
+                requirePublishedFileId: false)
+            .ToList();
+
+        if (mod.PublishedFileId is not null and not 0)
+            issues.Add(new ValidationIssue(
+                "published_file_id_exists",
+                $"About/PublishedFileId.txt already contains Workshop item id {mod.PublishedFileId}. Use the release publish flow to update it instead of creating a duplicate item.",
+                "error"));
+
+        return new WorkshopNewModPlan(
+            mod,
+            runDir,
+            stagingRoot,
+            contentFolder,
+            previewFile,
+            vdfPath,
+            vdfContent,
+            normalizedVisibility,
+            changeNote,
+            tags,
             issues);
     }
 
@@ -73,5 +137,46 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
             fields["description"] = mod.Description ?? "";
 
         return fields;
+    }
+
+    public static IReadOnlyDictionary<string, string> CreateNewModVdfFields(
+        ModInspection mod,
+        string contentFolder,
+        string previewFile,
+        string visibility,
+        string changeNote)
+    {
+        var fields = new Dictionary<string, string>
+        {
+            ["appid"] = AgentPaths.RimWorldAppId.ToString(),
+            ["publishedfileid"] = "0",
+            ["contentfolder"] = contentFolder,
+            ["previewfile"] = previewFile,
+            ["title"] = mod.ModName,
+            ["description"] = mod.Description ?? "",
+            ["visibility"] = NormalizeVisibility(visibility),
+            ["changenote"] = changeNote
+        };
+
+        return fields;
+    }
+
+    public static string NormalizeVisibility(string visibility)
+    {
+        var value = visibility.Trim();
+        if (VisibilityValues.TryGetValue(value, out var normalized))
+            return normalized;
+
+        throw new ArgumentException("Visibility must be one of: public, friends, private, unlisted, 0, 1, 2, or 3.", nameof(visibility));
+    }
+
+    public static IReadOnlyList<string> CreateDefaultTags(ModInspection mod)
+    {
+        return new[] { "Mod" }
+            .Concat(mod.SupportedVersions)
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Select(tag => tag.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 }

@@ -16,6 +16,17 @@ public sealed class ValidationTests
     }
 
     [Fact]
+    public void ValidateForWorkshop_Allows_Missing_Published_File_Id_For_New_Mod()
+    {
+        using var fixture = TestModRepo.Create();
+        var mod = TestModRepo.SampleInspection(publishedFileId: null, previewImagePath: fixture.PreviewPath);
+
+        var issues = Validation.ValidateForWorkshop(mod, fixture.PreviewPath, fixture.Root, requirePublishedFileId: false);
+
+        Assert.DoesNotContain(issues, issue => issue.Code == "missing_published_file_id");
+    }
+
+    [Fact]
     public void ValidateForWorkshop_Rejects_Oversized_Preview()
     {
         using var fixture = TestModRepo.Create(previewBytes: (1024 * 1024) + 1);

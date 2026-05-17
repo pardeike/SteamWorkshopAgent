@@ -1,10 +1,10 @@
 # Architecture Enhancements
 
-Future SteamWorkshopAgent work should treat Steam Workshop automation as a hybrid system rather than a single publishing backend.
+SteamWorkshopAgent should treat Steam Workshop automation as a hybrid system rather than a single publishing backend.
 
 ## Current Backend
 
-The current implementation uses SteamCMD:
+The current implementation uses SteamCMD for content upload:
 
 ```text
 steamcmd +login <user> +workshop_build_item <workshop.vdf> +quit
@@ -17,11 +17,11 @@ Its main weaknesses are:
 - It uses SteamCMD's own login token cache, not the already-authenticated Steam desktop client session.
 - It is poor at reading current Workshop state.
 - It has no natural structured read path for page stats, current tags, current previews, current rendered description, or previous changenotes.
-- Tag handling through VDF is less explicit than direct `ISteamUGC.SetItemTags`, so the current server intentionally preserves existing tags.
+- Tag handling through VDF is less explicit than direct `ISteamUGC.SetItemTags`, so the generated update VDF preserves existing tags and the confirmed publish path submits tags separately through the Steamworks tag updater.
 
-Keep SteamCMD as a fallback backend, but do not make it the only long-term path.
+Keep SteamCMD as the content upload backend until the Steamworks publisher is complete, but do not make it the only long-term path.
 
-## Steamworks Helper Backend
+## Steamworks Tag Backend
 
 RimWorld's own Workshop uploader does not use SteamCMD. Decompilation of the current RimWorld `Assembly-CSharp.dll` shows it uses Steamworks UGC calls from inside the running game process:
 
@@ -38,15 +38,33 @@ SteamUGC.SubmitItemUpdate(...)
 
 This means RimWorld inherits the logged-in Steam desktop client session, which is why it normally does not ask for Steam credentials.
 
-A future preferred publish backend should be a small local Steamworks uploader helper that:
+The current tag backend is a small local Steamworks helper that:
 
 - initializes Steamworks for RimWorld app id `294100`;
 - uses the active Steam client session instead of SteamCMD credentials;
+- uses `ISteamUGC.StartItemUpdate`, `ISteamUGC.SetItemTags`, and `ISteamUGC.SubmitItemUpdate`;
+- runs in a child helper process so native Steamworks stdout cannot corrupt stdio MCP traffic;
+- returns detailed Steam result codes, logged-on state, timeout state, and whether the user needs to accept the Workshop legal agreement.
+
+This backend is used by:
+
+- `WorkshopSetTags` for existing items;
+- `WorkshopCreateNewMod` after SteamCMD returns the new `publishedfileid`;
+- `WorkshopPublishRelease` after SteamCMD completes an existing-item update.
+
+The correct RimWorld mod tag set is `Mod` plus the supported game versions from `About/About.xml`, for example `Mod` and `1.6`.
+
+On the current macOS setup, the Steamworks call path initializes but `SteamUser.BLoggedOn` reports false, matching RimWorld's `NotLoggedOn` failure. In that state SteamCMD content upload can still work, but the tag backend returns a failed `tagUpdate` result and does not claim the tags were applied.
+
+## Steamworks Publisher Backend
+
+A future preferred full publish backend should extend the local Steamworks helper so it:
+
 - accepts staged content, preview path, title, description policy, tags, metadata, visibility, and changenote from the MCP server;
 - uses `ISteamUGC.StartItemUpdate` / `SubmitItemUpdate`;
 - pumps Steam callbacks until completion;
 - reports upload progress through `GetItemUpdateProgress`;
-- returns detailed Steam result codes and whether the user needs to accept the Workshop legal agreement.
+- returns detailed Steam result codes.
 
 Expected advantages:
 
@@ -100,7 +118,7 @@ The long-term architecture should be:
 
 1. Keep SteamCMD as a documented fallback publisher.
 2. Add non-mutating Workshop read tools using Web API / page snapshots.
-3. Add a Steamworks helper as the preferred local publisher.
+3. Extend the current Steamworks tag helper into a full preferred local publisher.
 4. Use read tools before and after publishing to validate expected Workshop state.
 5. Keep destructive or sensitive operations behind explicit confirmation flags.
 

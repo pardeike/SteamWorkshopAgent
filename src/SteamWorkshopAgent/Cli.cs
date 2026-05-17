@@ -28,6 +28,22 @@ internal static class Cli
                     HasFlag(args, "--confirm"),
                     HasFlag(args, "--update-description"),
                     GetOption(args, "--steam-user")),
+                "new-mod" => await services.WorkshopPublisher.CreateNewModAsync(
+                    RequireArg(args, 1, "modPath"),
+                    HasFlag(args, "--confirm"),
+                    GetOption(args, "--steam-user"),
+                    GetOption(args, "--visibility") ?? "private",
+                    GetOption(args, "--changenote") ?? "Initial upload"),
+                "set-tags" => await services.WorkshopTagUpdater.SetTagsAsync(
+                    RequireArg(args, 1, "modPathOrPublishedFileId"),
+                    GetTags(args, startIndex: 2),
+                    HasFlag(args, "--confirm"),
+                    GetOption(args, "--changenote") ?? "Set Workshop tags"),
+                "steamworks-set-tags-internal" => services.WorkshopTagUpdater.SetTagsInCurrentProcess(
+                    ulong.Parse(RequireArg(args, 1, "publishedFileId")),
+                    WorkshopTagUpdater.DecodeJson<IReadOnlyList<string>>(RequireArg(args, 2, "tagsJsonBase64")),
+                    WorkshopTagUpdater.DecodeJson<string>(RequireArg(args, 3, "changeNoteJsonBase64")),
+                    RequireArg(args, 4, "nativeLibraryPath")),
                 "help" or "--help" or "-h" => Usage(),
                 _ => throw new ArgumentException($"Unknown command '{args[0]}'.\n{Usage()}")
             };
@@ -49,12 +65,14 @@ internal static class Cli
         var modInspector = new ModInspector(processRunner);
         var releaseReader = new GitHubReleaseReader(processRunner);
         var planner = new WorkshopPlanner(modInspector, releaseReader);
-        var publisher = new WorkshopPublisher(processRunner, steamEnvironment, planner);
+        var tagUpdater = new WorkshopTagUpdater(steamEnvironment, modInspector, processRunner);
+        var publisher = new WorkshopPublisher(processRunner, steamEnvironment, planner, tagUpdater);
 
         return new Services(
             steamEnvironment,
             modInspector,
             planner,
+            tagUpdater,
             publisher);
     }
 
@@ -82,6 +100,15 @@ internal static class Cli
         return args[index];
     }
 
+    private static IReadOnlyList<string> GetTags(string[] args, int startIndex)
+    {
+        return args
+            .Skip(startIndex)
+            .TakeWhile(arg => !arg.StartsWith("--", StringComparison.Ordinal))
+            .Where(arg => !string.IsNullOrWhiteSpace(arg))
+            .ToList();
+    }
+
     private static string Usage()
     {
         return """
@@ -91,6 +118,8 @@ internal static class Cli
               SteamWorkshopAgent inspect <repoPath>
               SteamWorkshopAgent plan <repoPath> <tag> [--update-description]
               SteamWorkshopAgent publish <repoPath> <tag> [--confirm] [--steam-user USER] [--update-description]
+              SteamWorkshopAgent new-mod <modPath> [--confirm] [--steam-user USER] [--visibility private|friends|public|unlisted] [--changenote TEXT]
+              SteamWorkshopAgent set-tags <modPath|publishedFileId> [tag ...] [--confirm] [--changenote TEXT]
             """;
     }
 
@@ -98,5 +127,6 @@ internal static class Cli
         SteamEnvironment SteamEnvironment,
         ModInspector ModInspector,
         WorkshopPlanner WorkshopPlanner,
+        WorkshopTagUpdater WorkshopTagUpdater,
         WorkshopPublisher WorkshopPublisher);
 }

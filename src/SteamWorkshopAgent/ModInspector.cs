@@ -10,24 +10,36 @@ public sealed class ModInspector(ProcessRunner processRunner)
         if (!Directory.Exists(absoluteRepo))
             throw new DirectoryNotFoundException($"Repository path does not exist: {absoluteRepo}");
 
-        var propsPath = Path.Combine(absoluteRepo, "Directory.Build.props");
-        if (!File.Exists(propsPath))
-            throw new FileNotFoundException("Directory.Build.props was not found.", propsPath);
-
         var aboutXmlPath = Path.Combine(absoluteRepo, "About", "About.xml");
         if (!File.Exists(aboutXmlPath))
             throw new FileNotFoundException("About/About.xml was not found.", aboutXmlPath);
 
-        var props = XDocument.Load(propsPath);
-        var modFileName = RequiredDescendant(props, "ModFileName", propsPath);
-        var modNameFromProps = OptionalDescendant(props, "ModName");
-        var repositoryUrl = OptionalDescendant(props, "Repository");
+        var propsPath = Path.Combine(absoluteRepo, "Directory.Build.props");
+        string? modFileNameFromProps = null;
+        string? modNameFromProps = null;
+        string? repositoryUrlFromProps = null;
+        string? modVersionFromProps = null;
+        string? projectPath = null;
+
+        if (File.Exists(propsPath))
+        {
+            var props = XDocument.Load(propsPath);
+            modFileNameFromProps = RequiredDescendant(props, "ModFileName", propsPath);
+            modNameFromProps = OptionalDescendant(props, "ModName");
+            repositoryUrlFromProps = OptionalDescendant(props, "Repository");
+            modVersionFromProps = OptionalDescendant(props, "ModVersion");
+            projectPath = ResolveProjectPath(absoluteRepo, modFileNameFromProps);
+        }
 
         var about = XDocument.Load(aboutXmlPath);
         var root = about.Root ?? throw new InvalidOperationException($"Invalid About.xml: {aboutXmlPath}");
+        var modFileName = string.IsNullOrWhiteSpace(modFileNameFromProps)
+            ? InferModFileName(absoluteRepo, root, aboutXmlPath)
+            : modFileNameFromProps;
         var modName = RequiredChild(root, "name", aboutXmlPath, fallback: modNameFromProps);
         var packageId = RequiredChild(root, "packageId", aboutXmlPath);
-        var modVersion = RequiredChild(root, "modVersion", aboutXmlPath, fallback: OptionalDescendant(props, "ModVersion"));
+        var modVersion = RequiredChild(root, "modVersion", aboutXmlPath, fallback: modVersionFromProps);
+        var repositoryUrl = repositoryUrlFromProps ?? OptionalChild(root, "url");
         var description = OptionalChild(root, "description");
         var supportedVersions = root.Element("supportedVersions")?
             .Elements("li")
@@ -47,7 +59,6 @@ public sealed class ModInspector(ProcessRunner processRunner)
         var previewPath = Path.Combine(absoluteRepo, "About", "Preview.png");
         var previewInfo = File.Exists(previewPath) ? new FileInfo(previewPath) : null;
         var loadFoldersPath = Path.Combine(absoluteRepo, "LoadFolders.xml");
-        var projectPath = ResolveProjectPath(absoluteRepo, modFileName);
         var gitRemote = await TryGitAsync(absoluteRepo, "remote", "get-url", "origin");
         var gitBranch = await TryGitAsync(absoluteRepo, "branch", "--show-current");
 
@@ -75,6 +86,15 @@ public sealed class ModInspector(ProcessRunner processRunner)
             description,
             AgentPaths.RimWorldAppId,
             workshopUrl);
+    }
+
+    private static string InferModFileName(string modPath, XElement aboutRoot, string aboutXmlPath)
+    {
+        var folderName = new DirectoryInfo(modPath).Name.Trim();
+        if (!string.IsNullOrWhiteSpace(folderName))
+            return folderName;
+
+        return RequiredChild(aboutRoot, "name", aboutXmlPath);
     }
 
     private static string ResolveProjectPath(string repoPath, string modFileName)

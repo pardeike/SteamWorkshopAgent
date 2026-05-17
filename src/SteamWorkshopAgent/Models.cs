@@ -9,7 +9,7 @@ public sealed record ModInspection(
     string? RepositoryUrl,
     string? GitRemoteUrl,
     string? GitBranch,
-    string ProjectPath,
+    string? ProjectPath,
     string AboutXmlPath,
     string? LoadFoldersPath,
     string? PublishedFileIdPath,
@@ -19,7 +19,10 @@ public sealed record ModInspection(
     IReadOnlyList<string> SupportedVersions,
     string? Description,
     uint RimWorldAppId,
-    string WorkshopUrl);
+    string WorkshopUrl)
+{
+    public bool HasBuildProject => !string.IsNullOrWhiteSpace(ProjectPath);
+}
 
 public sealed record GitHubReleaseInfo(
     string TagName,
@@ -44,16 +47,32 @@ public sealed record WorkshopReleasePlan(
     IReadOnlyList<string> IntendedTags,
     IReadOnlyList<ValidationIssue> ValidationIssues);
 
+public sealed record WorkshopNewModPlan(
+    ModInspection Mod,
+    string RunDirectory,
+    string StagingRoot,
+    string ContentFolder,
+    string PreviewFile,
+    string VdfPath,
+    string VdfContent,
+    string Visibility,
+    string ChangeNote,
+    IReadOnlyList<string> Tags,
+    IReadOnlyList<ValidationIssue> ValidationIssues);
+
 public sealed record SteamStatusResult(
     string? SteamCmdPath,
     bool SteamCmdFound,
     string? SteamCmdUser,
     bool SteamAppManifestFound,
     string? SteamAppManifestPath,
+    bool SteamworksNativeLibraryFound,
+    string? SteamworksNativeLibraryPath,
     uint RimWorldAppId,
     IReadOnlyList<string> WorkshopLogPaths,
     ProcessResult? SteamCmdQuitResult,
-    string SetupHint);
+    string SetupHint,
+    string TagUpdateHint);
 
 public sealed record PublishResult(
     bool Success,
@@ -65,7 +84,46 @@ public sealed record PublishResult(
     string SteamCmdStdout,
     string SteamCmdStderr,
     IReadOnlyList<string> LogTails,
+    WorkshopTagUpdateResult? TagUpdate,
     WorkshopReleasePlan Plan);
+
+public sealed record CreateNewModResult(
+    bool Success,
+    int SteamCmdExitCode,
+    ulong? PublishedFileId,
+    string PublishedFileIdPath,
+    string WorkshopUrl,
+    string RunDirectory,
+    string VdfPath,
+    string ContentFolder,
+    string SteamCmdStdout,
+    string SteamCmdStderr,
+    IReadOnlyList<string> LogTails,
+    WorkshopTagUpdateResult? TagUpdate,
+    WorkshopNewModPlan Plan);
+
+public sealed record WorkshopTagUpdatePlan(
+    ulong PublishedFileId,
+    IReadOnlyList<string> Tags,
+    string ChangeNote,
+    uint RimWorldAppId,
+    string? NativeLibraryPath,
+    IReadOnlyList<ValidationIssue> ValidationIssues);
+
+public sealed record WorkshopTagUpdateResult(
+    bool Success,
+    ulong PublishedFileId,
+    IReadOnlyList<string> Tags,
+    string ChangeNote,
+    string Backend,
+    string? NativeLibraryPath,
+    bool SteamInitialized,
+    bool SteamUserLoggedOn,
+    uint? SteamAppId,
+    string? SubmitResult,
+    bool UserNeedsToAcceptWorkshopLegalAgreement,
+    bool TimedOut,
+    string Message);
 
 public sealed record ProcessResult(
     int ExitCode,

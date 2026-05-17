@@ -20,8 +20,28 @@ public sealed class ModInspectorTests
         Assert.Equal((ulong)123456789, result.PublishedFileId);
         Assert.Equal((uint)294100, result.RimWorldAppId);
         Assert.Contains("1.6", result.SupportedVersions);
+        Assert.NotNull(result.ProjectPath);
         Assert.EndsWith("TestMod.csproj", result.ProjectPath);
+        Assert.True(result.HasBuildProject);
         Assert.Equal("https://steamcommunity.com/sharedfiles/filedetails/?id=123456789", result.WorkshopUrl);
+    }
+
+    [Fact]
+    public async Task InspectAsync_Reads_Deployed_Mod_Folder_Without_DirectoryBuildProps()
+    {
+        using var fixture = TestModRepo.CreateDeployed();
+        var inspector = new ModInspector(new ProcessRunner());
+
+        var result = await inspector.InspectAsync(fixture.Root);
+
+        Assert.Equal(Path.GetFileName(fixture.Root), result.ModFileName);
+        Assert.Equal("Deployed Test Mod", result.ModName);
+        Assert.Equal("brrainz.deployedtestmod", result.PackageId);
+        Assert.Equal("2.0.0", result.ModVersion);
+        Assert.Null(result.ProjectPath);
+        Assert.False(result.HasBuildProject);
+        Assert.Contains("1.6", result.SupportedVersions);
+        Assert.Equal(Path.Combine(fixture.Root, "About", "About.xml"), result.AboutXmlPath);
     }
 
     [Fact]

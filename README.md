@@ -8,15 +8,17 @@ The server is aimed at the local mod-development workflow: build the mod in Rele
 
 - [README.md](README.md): user-facing overview and quick start
 - [AGENTS.md](AGENTS.md): local MCP redeploy convention for this workspace
-- [Architecture Enhancements](docs/ARCHITECTURE_ENHANCEMENTS.md): future SteamCMD, Steamworks helper, and Workshop read-back architecture
+- [Architecture Enhancements](docs/ARCHITECTURE_ENHANCEMENTS.md): hybrid SteamCMD, Steamworks, and Workshop read-back architecture
 
 ## Highlights
 
-- Inspect RimWorld mod metadata from `About/About.xml`, `About/PublishedFileId.txt`, `LoadFolders.xml`, and `Directory.Build.props`.
-- Use the fixed RimWorld Steam app id `294100` and the mod Workshop id from `About/PublishedFileId.txt`.
+- Inspect RimWorld mod metadata from a source repository or an already-deployed mod folder using `About/About.xml`, optional `About/PublishedFileId.txt`, `LoadFolders.xml`, and optional `Directory.Build.props`.
+- Use the fixed RimWorld Steam app id `294100` and the mod Workshop id from `About/PublishedFileId.txt` when present.
+- Create the initial private Steam Workshop item for a new local mod from either a source repository or an already-built mod folder, and write the returned id to `About/PublishedFileId.txt`.
 - Read GitHub release notes through `gh release view`.
 - Generate a dry-run Workshop release plan before uploading.
 - Publish through SteamCMD `+workshop_build_item`.
+- Submit RimWorld Workshop category tags such as `Mod` and `1.6` through the same local Steamworks UGC path RimWorld uses.
 - Preserve the existing Workshop page description unless `updateDescription` is explicitly enabled.
 
 ## Requirements
@@ -24,7 +26,9 @@ The server is aimed at the local mod-development workflow: build the mod in Rele
 - .NET 10 SDK to build from source
 - SteamCMD for Workshop uploads
 - GitHub CLI `gh` for reading release notes
-- A RimWorld mod repository with a Release build target that supports `RIMWORLD_MOD_DIR`
+- A logged-on Steam desktop client session for local Steamworks tag updates
+- A RimWorld mod source repository with a Release build target that supports `RIMWORLD_MOD_DIR` for release publishing
+- For initial `new-mod` uploads, either a source repository or an already-built RimWorld mod folder with `About/About.xml`, `About/Preview.png`, and versioned `Assemblies` content
 
 Install SteamCMD on this Mac with:
 
@@ -51,6 +55,8 @@ Enter the password and Steam Guard token there. SteamCMD stores a reusable login
 ```
 
 Future automated runs should use only the username. If the token is deleted, invalidated, or Steam requires fresh verification, refresh the login manually in a terminal and then rerun the MCP publish.
+
+Workshop category tags are not submitted through SteamCMD. The agent calls RimWorld's local Steamworks UGC path for tag updates, using RimWorld app id `294100` and the native Steam API library bundled with the installed RimWorld app. This requires the desktop Steam client session to be logged on from Steamworks' point of view. If Steamworks reports `NotLoggedOn`, the upload can still succeed through SteamCMD, but the returned tag update result will show the tag submission failure.
 
 ## Build And Test
 
@@ -100,11 +106,11 @@ Restart the MCP client after changing the installed binary or MCP configuration.
 
 `SteamStatus`
 
-Checks whether SteamCMD is installed, whether RimWorld is installed through Steam, and where Steam Workshop logs are expected.
+Checks whether SteamCMD is installed, whether RimWorld is installed through Steam, whether RimWorld's native Steam API library is available for tag updates, and where Steam Workshop logs are expected.
 
 `RimWorldModInspect`
 
-Reads a RimWorld mod repository and returns the metadata needed for Workshop publishing.
+Reads a RimWorld mod source repository or already-deployed mod folder and returns the metadata needed for Workshop publishing.
 
 `WorkshopReleasePlan`
 
@@ -112,16 +118,25 @@ Creates a dry-run plan for a GitHub release tag. It reads the GitHub release bod
 
 `WorkshopPublishRelease`
 
-Publishes a confirmed release to Steam Workshop.
+Publishes a confirmed release to Steam Workshop. After SteamCMD uploads the content, the tool submits the intended `Mod` plus supported RimWorld version tags through the local Steamworks tag updater.
+
+`WorkshopCreateNewMod`
+
+Creates a new Steam Workshop item for a local RimWorld mod through SteamCMD. The tool defaults to a dry run. With `confirm=true`, it builds source repositories into a temporary staging directory or uploads an already-built mod folder directly, creates a new private Workshop item by using `publishedfileid` `0`, reads the id SteamCMD writes back into the VDF, submits the `Mod` tag plus supported RimWorld version tags such as `1.6` through Steamworks, and saves the id to `About/PublishedFileId.txt`.
+
+`WorkshopSetTags`
+
+Sets category tags on an existing RimWorld Workshop item. Pass either a numeric Workshop id or a source/deployed mod path with `About/PublishedFileId.txt`. If `tags` is omitted for a mod path, the tool uses `Mod` plus the supported RimWorld versions from `About/About.xml`.
 
 The publish path is intentionally conservative:
 
 1. Refuse to publish from a dirty git worktree.
-2. Build the mod in Release mode into a temporary staging directory.
+2. Build source repositories in Release mode into a temporary staging directory, or use an already-built mod folder directly for `new-mod`.
 3. Validate the staged mod content and preview image.
 4. Write `workshop.vdf` and `plan.json` under `~/Library/Application Support/SteamWorkshopAgent/runs/...`.
 5. Run SteamCMD with `+workshop_build_item`.
-6. Return SteamCMD output and recent Steam log tails.
+6. Submit category tags through the local Steamworks UGC updater when SteamCMD succeeds.
+7. Return SteamCMD output, tag-update result, and recent Steam log tails.
 
 The publish tool defaults to dry-run behavior unless `confirm` is `true`.
 
@@ -131,15 +146,22 @@ The installed binary also has a thin CLI over the same services used by the MCP 
 
 ```sh
 ~/.local/lib/steam-workshop-agent/SteamWorkshopAgent status
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent inspect /path/to/mod/repo
+~/.local/lib/steam-workshop-agent/SteamWorkshopAgent inspect /path/to/mod/repo-or-folder
 ~/.local/lib/steam-workshop-agent/SteamWorkshopAgent plan /path/to/mod/repo v1.2.3
 ~/.local/lib/steam-workshop-agent/SteamWorkshopAgent publish /path/to/mod/repo v1.2.3 --confirm --steam-user your_steam_username
+~/.local/lib/steam-workshop-agent/SteamWorkshopAgent new-mod /path/to/mod/repo-or-folder --confirm --steam-user your_steam_username
+~/.local/lib/steam-workshop-agent/SteamWorkshopAgent set-tags /path/to/mod/repo-or-folder --confirm
+~/.local/lib/steam-workshop-agent/SteamWorkshopAgent set-tags 3727949765 Mod 1.6 --confirm
 ```
 
 ## Current Limits
 
-V1 focuses on release publishing only. It does not automate bulk Workshop description edits yet.
+The agent focuses on initial item creation, release publishing, and category tag updates. It does not automate bulk Workshop description edits yet.
 
-The generated VDF preserves existing Workshop tags by default. RimWorld's in-game uploader has internal tag handling, but SteamCMD tag syntax is easy to get wrong and a mistaken tag update can silently replace existing Workshop metadata.
+The new-mod path creates the initial item with private visibility by default. Pass `--visibility public`, `friends`, or `unlisted` only when that is intentional.
+
+SteamCMD is still used for content uploads. Category tags are submitted through the local Steamworks updater because SteamCMD accepts a `tags` block but does not reliably apply RimWorld category tags.
+
+The generated update VDF preserves existing Workshop tags; the confirmed publish path applies the intended tags afterward with `ISteamUGC.SetItemTags`. If the local desktop Steamworks session reports `NotLoggedOn`, the agent returns that failure in `tagUpdate` and does not claim the tags were applied.
 
 The tool only updates the Workshop description when `updateDescription` is explicitly `true`. By default it publishes the release changenote and leaves the long Workshop page description alone.

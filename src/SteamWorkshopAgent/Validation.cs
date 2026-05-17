@@ -2,11 +2,15 @@ namespace SteamWorkshopAgent;
 
 public static class Validation
 {
-    public static IReadOnlyList<ValidationIssue> ValidateForWorkshop(ModInspection mod, string previewPath, string contentFolder)
+    public static IReadOnlyList<ValidationIssue> ValidateForWorkshop(
+        ModInspection mod,
+        string previewPath,
+        string contentFolder,
+        bool requirePublishedFileId = true)
     {
         var issues = new List<ValidationIssue>();
 
-        if (mod.PublishedFileId is null or 0)
+        if (requirePublishedFileId && mod.PublishedFileId is (null or 0))
             issues.Add(new ValidationIssue("missing_published_file_id", "About/PublishedFileId.txt is missing or does not contain a nonzero Workshop item id.", "error"));
 
         if (string.IsNullOrWhiteSpace(mod.ModFileName))

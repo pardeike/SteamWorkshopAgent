@@ -59,6 +59,36 @@ public sealed class TestModRepo : IDisposable
         return new TestModRepo(root);
     }
 
+    public static TestModRepo CreateDeployed(int previewBytes = 128, bool includePublishedFileId = false)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "steam-workshop-agent-tests", $"DeployedTestMod-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(root, "About"));
+        Directory.CreateDirectory(Path.Combine(root, "1.6", "Assemblies"));
+
+        File.WriteAllText(Path.Combine(root, "About", "About.xml"), """
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Deployed Test Mod</name>
+  <author>Andreas Pardeike</author>
+  <supportedVersions>
+    <li>1.6</li>
+  </supportedVersions>
+  <packageId>brrainz.deployedtestmod</packageId>
+  <modVersion>2.0.0</modVersion>
+  <description>Deployed test description</description>
+</ModMetaData>
+""");
+
+        if (includePublishedFileId)
+            File.WriteAllText(Path.Combine(root, "About", "PublishedFileId.txt"), "123456789");
+
+        File.WriteAllText(Path.Combine(root, "LoadFolders.xml"), "<loadFolders />");
+        File.WriteAllBytes(Path.Combine(root, "About", "Preview.png"), Enumerable.Repeat((byte)1, previewBytes).ToArray());
+        File.WriteAllBytes(Path.Combine(root, "1.6", "Assemblies", "DeployedTestMod.dll"), [1, 2, 3]);
+
+        return new TestModRepo(root);
+    }
+
     public static ModInspection SampleInspection(
         ulong? publishedFileId = 123456789,
         string? description = "Test description",
