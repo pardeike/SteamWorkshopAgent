@@ -33,8 +33,9 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
         var contentFolder = contentFolderOverride ?? Path.Combine(stagingRoot, mod.ModFileName);
         var previewFile = Path.Combine(contentFolder, "About", "Preview.png");
         var vdfPath = Path.Combine(runDir, "workshop.vdf");
+        var steamChangeNote = CreateSteamChangeNote(mod, release);
 
-        var fields = CreateVdfFields(mod, release.ChangeNote, contentFolder, previewFile, updateDescription);
+        var fields = CreateVdfFields(mod, steamChangeNote, contentFolder, previewFile, updateDescription);
         var vdfContent = VdfWriter.WriteWorkshopItem(fields);
 
         var validationPreviewPath = File.Exists(previewFile) ? previewFile : mod.PreviewImagePath ?? previewFile;
@@ -113,6 +114,20 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
             issues);
     }
 
+    public static string CreateSteamChangeNote(ModInspection mod, GitHubReleaseInfo release)
+    {
+        var heading = $"{mod.ModName} v{FormatSteamVersion(mod.ModVersion)}";
+        var text = release.ChangeNote.Trim();
+
+        if (string.IsNullOrWhiteSpace(text))
+            return heading;
+
+        if (HasSteamReleaseHeading(text, heading))
+            return text;
+
+        return $"{heading}\n\n{text}";
+    }
+
     public static IReadOnlyDictionary<string, string> CreateVdfFields(
         ModInspection mod,
         string changeNote,
@@ -178,5 +193,24 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
             .Select(tag => tag.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static string FormatSteamVersion(string version)
+    {
+        var text = version.Trim();
+        var parts = text.Split('.');
+
+        return parts.Length == 4 && parts[3] == "0"
+            ? string.Join('.', parts.Take(3))
+            : text;
+    }
+
+    private static bool HasSteamReleaseHeading(string text, string heading)
+    {
+        if (string.Equals(text, heading, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return text.StartsWith($"{heading}\n", StringComparison.OrdinalIgnoreCase)
+            || text.StartsWith($"{heading}\r\n", StringComparison.OrdinalIgnoreCase);
     }
 }

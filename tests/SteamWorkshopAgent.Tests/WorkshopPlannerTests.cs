@@ -37,4 +37,38 @@ public sealed class WorkshopPlannerTests
             new ModInspector(processRunner),
             new GitHubReleaseReader(processRunner));
     }
+
+    [Fact]
+    public void CreateSteamChangeNote_Prefixes_Mod_Name_And_Short_Version()
+    {
+        var mod = TestModRepo.SampleInspection() with { ModVersion = "1.2.3.0" };
+        var release = new GitHubReleaseInfo(
+            TagName: "v1.2.3.0",
+            Name: "Test Mod 1.2.3",
+            Body: "Release body",
+            Url: "https://github.com/example/TestMod/releases/tag/v1.2.3.0",
+            ChangeNote: "Release body\n\nGitHub release: https://github.com/example/TestMod/releases/tag/v1.2.3.0");
+
+        var changeNote = WorkshopPlanner.CreateSteamChangeNote(mod, release);
+
+        Assert.Equal(
+            "Test Mod v1.2.3\n\nRelease body\n\nGitHub release: https://github.com/example/TestMod/releases/tag/v1.2.3.0",
+            changeNote);
+    }
+
+    [Fact]
+    public void CreateSteamChangeNote_Does_Not_Duplicate_Existing_Header()
+    {
+        var mod = TestModRepo.SampleInspection() with { ModVersion = "1.2.3.0" };
+        var release = new GitHubReleaseInfo(
+            TagName: "v1.2.3.0",
+            Name: "Test Mod 1.2.3",
+            Body: "Test Mod v1.2.3\n\nRelease body",
+            Url: "https://github.com/example/TestMod/releases/tag/v1.2.3.0",
+            ChangeNote: "Test Mod v1.2.3\n\nRelease body\n\nGitHub release: https://github.com/example/TestMod/releases/tag/v1.2.3.0");
+
+        var changeNote = WorkshopPlanner.CreateSteamChangeNote(mod, release);
+
+        Assert.Equal(release.ChangeNote, changeNote);
+    }
 }

@@ -116,6 +116,18 @@ Reads a RimWorld mod source repository or already-deployed mod folder and return
 
 Creates a dry-run plan for a GitHub release tag. It reads the GitHub release body, resolves mod metadata, prepares SteamCMD VDF content, and reports validation issues before upload.
 
+Steam changenotes are formatted from the mod metadata and GitHub release body:
+
+```text
+Mod Name v1.2.3
+
+GitHub release body
+
+GitHub release: https://github.com/owner/repo/releases/tag/v1.2.3.0
+```
+
+Four-part mod versions with a trailing `.0` are shortened for the Steam heading only.
+
 `WorkshopPublishRelease`
 
 Publishes a confirmed release to Steam Workshop. After SteamCMD uploads the content, the tool submits the intended `Mod` plus supported RimWorld version tags through the local Steamworks tag updater.
