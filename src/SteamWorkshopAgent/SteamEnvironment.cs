@@ -7,7 +7,7 @@ public sealed class SteamEnvironment(ProcessRunner processRunner)
 
     public async Task<SteamStatusResult> GetStatusAsync(bool runSteamCmdQuit = false)
     {
-        var steamCmdPath = processRunner.FindOnPath("steamcmd");
+        var steamCmdPath = FindSteamCmd();
         var manifestPath = FindRimWorldManifest();
         var nativeLibraryPath = FindSteamworksNativeLibrary();
         var logPaths = GetWorkshopLogPaths().ToList();
@@ -46,8 +46,23 @@ public sealed class SteamEnvironment(ProcessRunner processRunner)
 
     public string RequireSteamCmd()
     {
-        return processRunner.FindOnPath("steamcmd")
+        return FindSteamCmd()
             ?? throw new InvalidOperationException("steamcmd was not found on PATH. Install it with `brew install --cask steamcmd`, then run `steamcmd +login <steam_user> +quit` once interactively.");
+    }
+
+    private string? FindSteamCmd()
+    {
+        var onPath = processRunner.FindOnPath("steamcmd");
+        if (onPath != null)
+            return onPath;
+
+        var candidates = new[]
+        {
+            "/opt/homebrew/bin/steamcmd",
+            "/usr/local/bin/steamcmd"
+        };
+
+        return candidates.FirstOrDefault(File.Exists);
     }
 
     public async Task<string> RequireSteamUserAsync(string? steamUser)
