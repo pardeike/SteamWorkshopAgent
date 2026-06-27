@@ -71,4 +71,25 @@ public sealed class WorkshopPlannerTests
 
         Assert.Equal(release.ChangeNote, changeNote);
     }
+
+    [Fact]
+    public void CreateSteamChangeNote_Uses_Custom_Override()
+    {
+        var mod = TestModRepo.SampleInspection() with { ModVersion = "1.2.3.0" };
+        var release = new GitHubReleaseInfo(
+            TagName: "v1.2.3.0",
+            Name: "Test Mod 1.2.3",
+            Body: "Release body",
+            Url: "https://github.com/example/TestMod/releases/tag/v1.2.3.0",
+            ChangeNote: "Release body\n\nGitHub release: https://github.com/example/TestMod/releases/tag/v1.2.3.0");
+
+        var changeNote = WorkshopPlanner.CreateSteamChangeNote(
+            mod,
+            release,
+            "This release fixes startup and makes reconnecting more reliable.");
+
+        Assert.Equal(
+            "Test Mod v1.2.3\n\nThis release fixes startup and makes reconnecting more reliable.",
+            changeNote);
+    }
 }

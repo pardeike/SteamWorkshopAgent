@@ -42,6 +42,7 @@ public sealed record WorkshopReleasePlan(
     string PreviewFile,
     string VdfPath,
     string VdfContent,
+    string ChangeNote,
     bool UpdateDescription,
     bool TagsPreserved,
     IReadOnlyList<string> IntendedTags,
@@ -101,6 +102,55 @@ public sealed record CreateNewModResult(
     IReadOnlyList<string> LogTails,
     WorkshopTagUpdateResult? TagUpdate,
     WorkshopNewModPlan Plan);
+
+public sealed record WorkshopDescriptionPlan(
+    ulong PublishedFileId,
+    string? ModPath,
+    string? ModName,
+    string WorkshopUrl,
+    uint RimWorldAppId,
+    string RunDirectory,
+    string VdfPath,
+    string Description,
+    int DescriptionCharacters,
+    string? Title,
+    string? ChangeNote,
+    string VdfContent,
+    IReadOnlyList<ValidationIssue> ValidationIssues);
+
+public sealed record WorkshopDescriptionTarget(
+    ulong PublishedFileId,
+    string? ModPath,
+    string? ModName);
+
+public sealed record WorkshopDescriptionSnapshot(
+    ulong PublishedFileId,
+    string? ModPath,
+    string? ModName,
+    string WorkshopUrl,
+    int Result,
+    string Title,
+    string Description,
+    int DescriptionCharacters,
+    int? Visibility,
+    long? TimeCreated,
+    long? TimeUpdated,
+    uint? ConsumerAppId,
+    string? Creator,
+    string? PreviewUrl,
+    IReadOnlyList<string> Tags,
+    IReadOnlyList<ValidationIssue> ValidationIssues);
+
+public sealed record WorkshopDescriptionUpdateResult(
+    bool Success,
+    int SteamCmdExitCode,
+    string WorkshopUrl,
+    string RunDirectory,
+    string VdfPath,
+    string SteamCmdStdout,
+    string SteamCmdStderr,
+    IReadOnlyList<string> LogTails,
+    WorkshopDescriptionPlan Plan);
 
 public sealed record WorkshopTagUpdatePlan(
     ulong PublishedFileId,

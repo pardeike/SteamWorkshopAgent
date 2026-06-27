@@ -2,6 +2,9 @@ namespace SteamWorkshopAgent;
 
 public sealed class SteamEnvironment(ProcessRunner processRunner)
 {
+    internal const string SteamUserProbePrefix = "__STEAM_WORKSHOP_AGENT_STEAMCMD_USER__";
+    internal const string SteamUserProbeSuffix = "__END__";
+
     public async Task<SteamStatusResult> GetStatusAsync(bool runSteamCmdQuit = false)
     {
         var steamCmdPath = processRunner.FindOnPath("steamcmd");
@@ -9,6 +12,7 @@ public sealed class SteamEnvironment(ProcessRunner processRunner)
         var nativeLibraryPath = FindSteamworksNativeLibrary();
         var logPaths = GetWorkshopLogPaths().ToList();
         ProcessResult? quitResult = null;
+        var steamCmdUser = await ResolveSteamUserAsync(null);
 
         if (runSteamCmdQuit && steamCmdPath != null)
         {
@@ -28,7 +32,7 @@ public sealed class SteamEnvironment(ProcessRunner processRunner)
         return new SteamStatusResult(
             steamCmdPath,
             steamCmdPath != null,
-            Environment.GetEnvironmentVariable("STEAMCMD_USER"),
+            steamCmdUser,
             manifestPath != null,
             manifestPath,
             nativeLibraryPath != null,
@@ -46,16 +50,26 @@ public sealed class SteamEnvironment(ProcessRunner processRunner)
             ?? throw new InvalidOperationException("steamcmd was not found on PATH. Install it with `brew install --cask steamcmd`, then run `steamcmd +login <steam_user> +quit` once interactively.");
     }
 
-    public string RequireSteamUser(string? steamUser)
+    public async Task<string> RequireSteamUserAsync(string? steamUser)
     {
-        var resolved = string.IsNullOrWhiteSpace(steamUser)
-            ? Environment.GetEnvironmentVariable("STEAMCMD_USER")
-            : steamUser;
+        return await ResolveSteamUserAsync(steamUser)
+            ?? throw new InvalidOperationException("No Steam username was provided. Pass steamUser to WorkshopPublishRelease or WorkshopUpdateDescription, set STEAMCMD_USER in the MCP environment, or export it from your shell startup files. Passwords and Steam Guard codes are never stored by this agent.");
+    }
 
-        if (string.IsNullOrWhiteSpace(resolved))
-            throw new InvalidOperationException("No Steam username was provided. Pass steamUser to workshop.publish_release or set STEAMCMD_USER. Passwords and Steam Guard codes are never stored by this agent.");
+    private async Task<string?> ResolveSteamUserAsync(string? steamUser)
+    {
+        if (!string.IsNullOrWhiteSpace(steamUser))
+            return steamUser.Trim();
 
-        return resolved.Trim();
+        var inherited = Environment.GetEnvironmentVariable("STEAMCMD_USER");
+        if (!string.IsNullOrWhiteSpace(inherited))
+            return inherited.Trim();
+
+        var fromShell = await TryReadSteamUserFromShellAsync();
+        if (!string.IsNullOrWhiteSpace(fromShell))
+            return fromShell.Trim();
+
+        return null;
     }
 
     public IEnumerable<string> GetWorkshopLogPaths()
@@ -105,5 +119,69 @@ public sealed class SteamEnvironment(ProcessRunner processRunner)
         if (path.StartsWith("~/", StringComparison.Ordinal))
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), path[2..]);
         return path;
+    }
+
+    private async Task<string?> TryReadSteamUserFromShellAsync()
+    {
+        var shellPath = ResolveShellPath();
+        if (shellPath == null)
+            return null;
+
+        try
+        {
+            var result = await processRunner.RunAsync(
+                shellPath,
+                CreateShellArguments(shellPath),
+                timeout: TimeSpan.FromSeconds(5),
+                maxOutputChars: 4096);
+
+            return result.ExitCode == 0
+                ? ExtractSteamUserFromShellOutput(result.Stdout)
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    internal static string? ExtractSteamUserFromShellOutput(string stdout)
+    {
+        var start = stdout.LastIndexOf(SteamUserProbePrefix, StringComparison.Ordinal);
+        if (start < 0)
+            return null;
+
+        start += SteamUserProbePrefix.Length;
+        var end = stdout.IndexOf(SteamUserProbeSuffix, start, StringComparison.Ordinal);
+        if (end < 0)
+            return null;
+
+        var value = stdout[start..end].Trim();
+        return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static string? ResolveShellPath()
+    {
+        var configured = Environment.GetEnvironmentVariable("SHELL");
+        if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
+            return configured;
+
+        return File.Exists("/bin/zsh")
+            ? "/bin/zsh"
+            : File.Exists("/bin/sh")
+                ? "/bin/sh"
+                : null;
+    }
+
+    private static string[] CreateShellArguments(string shellPath)
+    {
+        var command = $"printf '\\n{SteamUserProbePrefix}%s{SteamUserProbeSuffix}\\n' \"${{STEAMCMD_USER:-}}\"";
+        var shellName = Path.GetFileName(shellPath);
+
+        return shellName is "zsh" or "bash"
+            ? ["-lic", command]
+            : shellName is "sh" or "ksh"
+                ? ["-lc", command]
+                : ["-c", command];
     }
 }

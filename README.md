@@ -20,6 +20,10 @@ The server is aimed at the local mod-development workflow: build the mod in Rele
 - Publish through SteamCMD `+workshop_build_item`.
 - Submit RimWorld Workshop category tags such as `Mod` and `1.6` through the same local Steamworks UGC path RimWorld uses.
 - Preserve the existing Workshop page description unless `updateDescription` is explicitly enabled.
+- Read the current main Workshop page title and description through Steam's public item details API.
+- Update the main Workshop page description directly with a metadata-only SteamCMD VDF, without rebuilding mod content or changing tags.
+- Override the Steam Workshop release changenote at publish time when you want a concise hand-written note instead of the GitHub release body.
+- Submit a changenote update for an already-published Workshop item through local Steamworks.
 
 ## Requirements
 
@@ -41,6 +45,8 @@ SteamWorkshopAgent does not store Steam passwords or Steam Guard codes. It passe
 ```sh
 export STEAMCMD_USER=your_steam_username
 ```
+
+When running as an MCP server, the client process may not inherit your terminal environment. If `steamUser` is omitted and `STEAMCMD_USER` is missing from the MCP process environment, the agent also probes your configured shell startup files and reads only that username value.
 
 Authenticate SteamCMD once in a real terminal:
 
@@ -116,7 +122,7 @@ Reads a RimWorld mod source repository or already-deployed mod folder and return
 
 Creates a dry-run plan for a GitHub release tag. It reads the GitHub release body, resolves mod metadata, prepares SteamCMD VDF content, and reports validation issues before upload.
 
-Steam changenotes are formatted from the mod metadata and GitHub release body:
+Steam changenotes are formatted from the mod metadata and GitHub release body by default:
 
 ```text
 Mod Name v1.2.3
@@ -126,11 +132,13 @@ GitHub release body
 GitHub release: https://github.com/owner/repo/releases/tag/v1.2.3.0
 ```
 
+Pass `changeNote` to use custom Steam changenote text for the plan or publish. The agent still prefixes the mod/version heading unless your text already starts with it.
+
 Four-part mod versions with a trailing `.0` are shortened for the Steam heading only.
 
 `WorkshopPublishRelease`
 
-Publishes a confirmed release to Steam Workshop. After SteamCMD uploads the content, the tool submits the intended `Mod` plus supported RimWorld version tags through the local Steamworks tag updater.
+Publishes a confirmed release to Steam Workshop. After SteamCMD uploads the content, the tool submits the intended `Mod` plus supported RimWorld version tags through the local Steamworks tag updater using the same release changenote, so the separate tag submit does not replace the visible update note with generic tag text.
 
 `WorkshopCreateNewMod`
 
@@ -140,15 +148,31 @@ Creates a new Steam Workshop item for a local RimWorld mod through SteamCMD. The
 
 Sets category tags on an existing RimWorld Workshop item. Pass either a numeric Workshop id or a source/deployed mod path with `About/PublishedFileId.txt`. If `tags` is omitted for a mod path, the tool uses `Mod` plus the supported RimWorld versions from `About/About.xml`.
 
+`WorkshopGetDescription`
+
+Reads the current main Steam Workshop item title and description. Pass either a numeric Workshop id or a local mod path with `About/PublishedFileId.txt`. The result includes the raw editable description text, character count, title, update timestamp, visibility, tags returned by Steam, and the public Workshop URL.
+
+`WorkshopUpdateDescription`
+
+Updates the main Steam Workshop item description field. Pass either a numeric Workshop id or a local mod path with `About/PublishedFileId.txt`, plus the complete new description text. This path writes a small VDF containing `appid`, `publishedfileid`, and `description`; it intentionally omits `contentfolder`, `previewfile`, and tags so the upload is metadata-only. Title and changenote are optional and omitted by default.
+
+`WorkshopSetChangeNote`
+
+Submits a changenote update for an existing RimWorld Workshop item. Pass either a numeric Workshop id or a source/deployed mod path with `About/PublishedFileId.txt`, plus the changenote text and `confirm=true`.
+
+This submits a new Steamworks item update with the supplied changenote. It does not edit old historical changenote entries that Steam has already recorded.
+
 The publish path is intentionally conservative:
 
 1. Refuse to publish from a dirty git worktree.
-2. Build source repositories in Release mode into a temporary staging directory, or use an already-built mod folder directly for `new-mod`.
+2. For release publishes, create a detached temporary Git worktree at the requested tag and build that source tree in Release mode into a temporary staging directory. This keeps the caller's checkout clean even when the mod build rewrites tracked local deploy artifacts.
 3. Validate the staged mod content and preview image.
 4. Write `workshop.vdf` and `plan.json` under `~/Library/Application Support/SteamWorkshopAgent/runs/...`.
 5. Run SteamCMD with `+workshop_build_item`.
-6. Submit category tags through the local Steamworks UGC updater when SteamCMD succeeds.
+6. Submit category tags through the local Steamworks UGC updater with the same release changenote when SteamCMD succeeds.
 7. Return SteamCMD output, tag-update result, and recent Steam log tails.
+
+The release tag must exist locally so Git can create the detached worktree. If the agent reports that the tag cannot be resolved, run `git fetch --tags` in the mod repository and retry.
 
 The publish tool defaults to dry-run behavior unless `confirm` is `true`.
 
@@ -160,15 +184,22 @@ The installed binary also has a thin CLI over the same services used by the MCP 
 ~/.local/lib/steam-workshop-agent/SteamWorkshopAgent status
 ~/.local/lib/steam-workshop-agent/SteamWorkshopAgent inspect /path/to/mod/repo-or-folder
 ~/.local/lib/steam-workshop-agent/SteamWorkshopAgent plan /path/to/mod/repo v1.2.3
+~/.local/lib/steam-workshop-agent/SteamWorkshopAgent plan /path/to/mod/repo v1.2.3 --changenote "Simple public release note"
 ~/.local/lib/steam-workshop-agent/SteamWorkshopAgent publish /path/to/mod/repo v1.2.3 --confirm --steam-user your_steam_username
+~/.local/lib/steam-workshop-agent/SteamWorkshopAgent publish /path/to/mod/repo v1.2.3 --confirm --steam-user your_steam_username --changenote "Simple public release note"
 ~/.local/lib/steam-workshop-agent/SteamWorkshopAgent new-mod /path/to/mod/repo-or-folder --confirm --steam-user your_steam_username
+~/.local/lib/steam-workshop-agent/SteamWorkshopAgent description-get /path/to/mod/repo-or-folder
+~/.local/lib/steam-workshop-agent/SteamWorkshopAgent description-get 928376710
+~/.local/lib/steam-workshop-agent/SteamWorkshopAgent description /path/to/mod/repo-or-folder description.txt --confirm --steam-user your_steam_username
+~/.local/lib/steam-workshop-agent/SteamWorkshopAgent description 928376710 description.txt --confirm --steam-user your_steam_username
 ~/.local/lib/steam-workshop-agent/SteamWorkshopAgent set-tags /path/to/mod/repo-or-folder --confirm
 ~/.local/lib/steam-workshop-agent/SteamWorkshopAgent set-tags 3727949765 Mod 1.6 --confirm
+~/.local/lib/steam-workshop-agent/SteamWorkshopAgent set-changenote 3727949765 --changenote "Simple public release note" --confirm
 ```
 
 ## Current Limits
 
-The agent focuses on initial item creation, release publishing, and category tag updates. It does not automate bulk Workshop description edits yet.
+The agent focuses on initial item creation, release publishing, single-item description updates, and category tag updates. Bulk Workshop description edits can be driven by a manifest or shell loop around the metadata-only `description` command.
 
 The new-mod path creates the initial item with private visibility by default. Pass `--visibility public`, `friends`, or `unlisted` only when that is intentional.
 

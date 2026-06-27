@@ -21,7 +21,8 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
         string tag,
         bool updateDescription = false,
         string? runDirectory = null,
-        string? contentFolderOverride = null)
+        string? contentFolderOverride = null,
+        string? changeNote = null)
     {
         var mod = await modInspector.InspectAsync(repoPath);
         if (!mod.HasBuildProject)
@@ -33,7 +34,7 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
         var contentFolder = contentFolderOverride ?? Path.Combine(stagingRoot, mod.ModFileName);
         var previewFile = Path.Combine(contentFolder, "About", "Preview.png");
         var vdfPath = Path.Combine(runDir, "workshop.vdf");
-        var steamChangeNote = CreateSteamChangeNote(mod, release);
+        var steamChangeNote = CreateSteamChangeNote(mod, release, changeNote);
 
         var fields = CreateVdfFields(mod, steamChangeNote, contentFolder, previewFile, updateDescription);
         var vdfContent = VdfWriter.WriteWorkshopItem(fields);
@@ -61,6 +62,7 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
             previewFile,
             vdfPath,
             vdfContent,
+            steamChangeNote,
             updateDescription,
             TagsPreserved: true,
             intendedTags,
@@ -114,10 +116,12 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
             issues);
     }
 
-    public static string CreateSteamChangeNote(ModInspection mod, GitHubReleaseInfo release)
+    public static string CreateSteamChangeNote(ModInspection mod, GitHubReleaseInfo release, string? changeNoteOverride = null)
     {
         var heading = $"{mod.ModName} v{FormatSteamVersion(mod.ModVersion)}";
-        var text = release.ChangeNote.Trim();
+        var text = string.IsNullOrWhiteSpace(changeNoteOverride)
+            ? release.ChangeNote.Trim()
+            : changeNoteOverride.Trim();
 
         if (string.IsNullOrWhiteSpace(text))
             return heading;

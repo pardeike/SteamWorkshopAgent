@@ -6,34 +6,47 @@ public sealed class WorkshopPublisher(
     ProcessRunner processRunner,
     SteamEnvironment steamEnvironment,
     WorkshopPlanner workshopPlanner,
-    WorkshopTagUpdater tagUpdater)
+    WorkshopTagUpdater tagUpdater,
+    GitReleaseWorktree releaseWorktree)
 {
     public async Task<object> PublishReleaseAsync(
         string repoPath,
         string tag,
         bool confirm,
         bool updateDescription = false,
-        string? steamUser = null)
+        string? steamUser = null,
+        string? changeNote = null)
     {
         if (!confirm)
-            return await workshopPlanner.CreateReleasePlanAsync(repoPath, tag, updateDescription);
+            return await workshopPlanner.CreateReleasePlanAsync(repoPath, tag, updateDescription, changeNote: changeNote);
 
-        var initialPlan = await workshopPlanner.CreateReleasePlanAsync(repoPath, tag, updateDescription);
+        var initialPlan = await workshopPlanner.CreateReleasePlanAsync(repoPath, tag, updateDescription, changeNote: changeNote);
         Directory.CreateDirectory(initialPlan.RunDirectory);
         Directory.CreateDirectory(initialPlan.StagingRoot);
 
-        var beforeStatus = await processRunner.RunAsync("git", ["-C", initialPlan.Mod.RepoPath, "status", "--short"], timeout: TimeSpan.FromSeconds(10));
-        if (beforeStatus.ExitCode == 0 && !string.IsNullOrWhiteSpace(beforeStatus.Stdout))
-            throw new InvalidOperationException("Refusing to publish from a dirty worktree. Commit or stash local changes first.");
+        await ThrowIfDirtyAsync(initialPlan.Mod.RepoPath);
 
-        await BuildReleaseAsync(initialPlan.Mod, initialPlan.StagingRoot);
+        await using var buildSource = await releaseWorktree.CreateAsync(
+            initialPlan.Mod.RepoPath,
+            tag,
+            initialPlan.RunDirectory);
 
-        var finalPlan = await workshopPlanner.CreateReleasePlanAsync(
-            repoPath,
+        var buildPlan = await workshopPlanner.CreateReleasePlanAsync(
+            buildSource.RepoPath,
             tag,
             updateDescription,
             initialPlan.RunDirectory,
-            initialPlan.ContentFolder);
+            changeNote: changeNote);
+
+        await BuildReleaseAsync(buildPlan.Mod, buildPlan.StagingRoot);
+
+        var finalPlan = await workshopPlanner.CreateReleasePlanAsync(
+            buildSource.RepoPath,
+            tag,
+            updateDescription,
+            initialPlan.RunDirectory,
+            buildPlan.ContentFolder,
+            changeNote);
 
         Validation.ThrowIfErrors(finalPlan.ValidationIssues);
         Directory.CreateDirectory(Path.GetDirectoryName(finalPlan.VdfPath)!);
@@ -43,7 +56,7 @@ public sealed class WorkshopPublisher(
             JsonSerializer.Serialize(finalPlan, ToolJson.Options));
 
         var steamCmdPath = steamEnvironment.RequireSteamCmd();
-        var resolvedSteamUser = steamEnvironment.RequireSteamUser(steamUser);
+        var resolvedSteamUser = await steamEnvironment.RequireSteamUserAsync(steamUser);
         var steamResult = await processRunner.RunAsync(
             steamCmdPath,
             ["+login", resolvedSteamUser, "+workshop_build_item", finalPlan.VdfPath, "+quit"],
@@ -55,7 +68,7 @@ public sealed class WorkshopPublisher(
             .Select(path => TailFile(path, 80))
             .ToList();
         var tagUpdate = steamResult.ExitCode == 0 && finalPlan.Mod.PublishedFileId is { } publishedFileId
-            ? await tagUpdater.SetTagsAsync(publishedFileId, finalPlan.IntendedTags, confirm: true, changeNote: "Set Workshop tags")
+            ? await tagUpdater.SetTagsAsync(publishedFileId, finalPlan.IntendedTags, confirm: true, finalPlan.ChangeNote)
             : null;
 
         return new PublishResult(
@@ -108,7 +121,7 @@ public sealed class WorkshopPublisher(
             JsonSerializer.Serialize(finalPlan, ToolJson.Options));
 
         var steamCmdPath = steamEnvironment.RequireSteamCmd();
-        var resolvedSteamUser = steamEnvironment.RequireSteamUser(steamUser);
+        var resolvedSteamUser = await steamEnvironment.RequireSteamUserAsync(steamUser);
         var steamResult = await processRunner.RunAsync(
             steamCmdPath,
             ["+login", resolvedSteamUser, "+workshop_build_item", finalPlan.VdfPath, "+quit"],
@@ -148,6 +161,20 @@ public sealed class WorkshopPublisher(
             logTails,
             tagUpdate,
             finalPlan);
+    }
+
+    private async Task ThrowIfDirtyAsync(string repoPath)
+    {
+        var status = await processRunner.RunAsync(
+            "git",
+            ["-C", repoPath, "status", "--short", "--untracked-files=all"],
+            timeout: TimeSpan.FromSeconds(10));
+
+        if (status.ExitCode != 0)
+            throw new InvalidOperationException($"Failed to inspect git status for {repoPath}.\nSTDOUT:\n{status.Stdout}\nSTDERR:\n{status.Stderr}");
+
+        if (!string.IsNullOrWhiteSpace(status.Stdout))
+            throw new InvalidOperationException("Refusing to publish from a dirty worktree. Commit or stash local changes first.");
     }
 
     private async Task BuildReleaseAsync(ModInspection mod, string stagingRoot)

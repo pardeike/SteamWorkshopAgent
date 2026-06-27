@@ -21,7 +21,20 @@ public sealed class WorkshopTagUpdater(SteamEnvironment steamEnvironment, ModIns
             return plan;
 
         Validation.ThrowIfErrors(plan.ValidationIssues);
-        return await SetTagsAsync(plan.PublishedFileId, plan.Tags, confirm: true, plan.ChangeNote);
+        return await SubmitUpdateViaHelperAsync(plan);
+    }
+
+    public async Task<object> SetChangeNoteAsync(
+        string modPathOrPublishedFileId,
+        string changeNote,
+        bool confirm)
+    {
+        var plan = await CreateChangeNotePlanAsync(modPathOrPublishedFileId, changeNote);
+        if (!confirm)
+            return plan;
+
+        Validation.ThrowIfErrors(plan.ValidationIssues);
+        return await SubmitUpdateViaHelperAsync(plan);
     }
 
     public async Task<WorkshopTagUpdateResult> SetTagsAsync(
@@ -37,7 +50,7 @@ public sealed class WorkshopTagUpdater(SteamEnvironment steamEnvironment, ModIns
                 Success: false,
                 publishedFileId,
                 normalizedTags,
-                changeNote,
+                plan.ChangeNote,
                 BackendName,
                 plan.NativeLibraryPath,
                 SteamInitialized: false,
@@ -50,7 +63,34 @@ public sealed class WorkshopTagUpdater(SteamEnvironment steamEnvironment, ModIns
 
         Validation.ThrowIfErrors(plan.ValidationIssues);
 
-        return await SubmitTagsViaHelperAsync(plan);
+        return await SubmitUpdateViaHelperAsync(plan);
+    }
+
+    public async Task<WorkshopTagUpdateResult> SetChangeNoteAsync(
+        ulong publishedFileId,
+        string changeNote,
+        bool confirm)
+    {
+        var plan = CreatePlan(publishedFileId, [], changeNote, requireTags: false);
+        if (!confirm)
+            return new WorkshopTagUpdateResult(
+                Success: false,
+                publishedFileId,
+                [],
+                plan.ChangeNote,
+                BackendName,
+                plan.NativeLibraryPath,
+                SteamInitialized: false,
+                SteamUserLoggedOn: false,
+                SteamAppId: null,
+                SubmitResult: null,
+                UserNeedsToAcceptWorkshopLegalAgreement: false,
+                TimedOut: false,
+                Message: "Dry run only. Pass confirm=true to submit the Steamworks changenote update.");
+
+        Validation.ThrowIfErrors(plan.ValidationIssues);
+
+        return await SubmitUpdateViaHelperAsync(plan);
     }
 
     public WorkshopTagUpdateResult SetTagsInCurrentProcess(
@@ -67,7 +107,7 @@ public sealed class WorkshopTagUpdater(SteamEnvironment steamEnvironment, ModIns
             nativeLibraryPath,
             []);
 
-        return SubmitTags(plan);
+        return SubmitUpdate(plan);
     }
 
     public async Task<WorkshopTagUpdatePlan> CreatePlanAsync(
@@ -90,17 +130,36 @@ public sealed class WorkshopTagUpdater(SteamEnvironment steamEnvironment, ModIns
             requirePublishedFileId: true);
     }
 
+    public async Task<WorkshopTagUpdatePlan> CreateChangeNotePlanAsync(
+        string modPathOrPublishedFileId,
+        string changeNote)
+    {
+        if (ulong.TryParse(modPathOrPublishedFileId, out var directId))
+            return CreatePlan(directId, [], changeNote, requireTags: false);
+
+        var mod = await modInspector.InspectAsync(modPathOrPublishedFileId);
+        return CreatePlan(
+            mod.PublishedFileId.GetValueOrDefault(),
+            [],
+            changeNote,
+            requirePublishedFileId: true,
+            requireTags: false);
+    }
+
     private WorkshopTagUpdatePlan CreatePlan(
         ulong publishedFileId,
         IReadOnlyList<string> tags,
         string changeNote,
-        bool requirePublishedFileId = false)
+        bool requirePublishedFileId = false,
+        bool requireTags = true)
     {
         var issues = new List<ValidationIssue>();
         if ((requirePublishedFileId || publishedFileId == 0) && publishedFileId == 0)
-            issues.Add(new ValidationIssue("missing_published_file_id", "A nonzero Workshop published file id is required to set tags.", "error"));
-        if (tags.Count == 0)
+            issues.Add(new ValidationIssue("missing_published_file_id", "A nonzero Workshop published file id is required.", "error"));
+        if (requireTags && tags.Count == 0)
             issues.Add(new ValidationIssue("missing_tags", "At least one Workshop tag is required.", "error"));
+        if (string.IsNullOrWhiteSpace(changeNote))
+            issues.Add(new ValidationIssue("missing_change_note", "A nonempty Workshop changenote is required.", "error"));
 
         var nativeLibraryPath = steamEnvironment.FindSteamworksNativeLibrary();
         if (nativeLibraryPath == null)
@@ -109,7 +168,7 @@ public sealed class WorkshopTagUpdater(SteamEnvironment steamEnvironment, ModIns
         return new WorkshopTagUpdatePlan(
             publishedFileId,
             tags,
-            changeNote,
+            NormalizeChangeNote(changeNote),
             AgentPaths.RimWorldAppId,
             nativeLibraryPath,
             issues);
@@ -124,7 +183,12 @@ public sealed class WorkshopTagUpdater(SteamEnvironment steamEnvironment, ModIns
             .ToList();
     }
 
-    private async Task<WorkshopTagUpdateResult> SubmitTagsViaHelperAsync(WorkshopTagUpdatePlan plan)
+    private static string NormalizeChangeNote(string changeNote)
+    {
+        return changeNote.Trim();
+    }
+
+    private async Task<WorkshopTagUpdateResult> SubmitUpdateViaHelperAsync(WorkshopTagUpdatePlan plan)
     {
         await SteamworksLock.WaitAsync();
         try
@@ -147,7 +211,7 @@ public sealed class WorkshopTagUpdater(SteamEnvironment steamEnvironment, ModIns
                 submitResult: null,
                 userNeedsAgreement: false,
                 timedOut: result.TimedOut,
-                $"Steamworks tag helper failed with exit code {result.ExitCode}. STDOUT: {Truncate(result.Stdout, 2000)} STDERR: {Truncate(result.Stderr, 2000)}");
+                $"Steamworks update helper failed with exit code {result.ExitCode}. STDOUT: {Truncate(result.Stdout, 2000)} STDERR: {Truncate(result.Stderr, 2000)}");
         }
         finally
         {
@@ -214,7 +278,7 @@ public sealed class WorkshopTagUpdater(SteamEnvironment steamEnvironment, ModIns
             ?? throw new InvalidOperationException($"Failed to decode {typeof(T).Name}.");
     }
 
-    private static WorkshopTagUpdateResult SubmitTags(WorkshopTagUpdatePlan plan)
+    private static WorkshopTagUpdateResult SubmitUpdate(WorkshopTagUpdatePlan plan)
     {
         Environment.SetEnvironmentVariable("SteamAppId", plan.RimWorldAppId.ToString());
         Environment.SetEnvironmentVariable("SteamGameId", plan.RimWorldAppId.ToString());
@@ -243,7 +307,7 @@ public sealed class WorkshopTagUpdater(SteamEnvironment steamEnvironment, ModIns
                 if (updateHandle == 0)
                     return Failure(plan, true, true, steamAppId, null, false, false, "SteamUGC.StartItemUpdate returned handle 0.");
 
-                if (!steam.SetItemTags(updateHandle, plan.Tags))
+                if (plan.Tags.Count > 0 && !steam.SetItemTags(updateHandle, plan.Tags))
                     return Failure(plan, true, true, steamAppId, null, false, false, "SteamUGC.SetItemTags returned false.");
 
                 var call = steam.SubmitItemUpdate(updateHandle, plan.ChangeNote);
@@ -269,7 +333,9 @@ public sealed class WorkshopTagUpdater(SteamEnvironment steamEnvironment, ModIns
                             submit.UserNeedsToAcceptWorkshopLegalAgreement,
                             TimedOut: false,
                             success
-                                ? "Workshop tags submitted through Steamworks."
+                                ? plan.Tags.Count > 0
+                                    ? "Workshop tags and changenote submitted through Steamworks."
+                                    : "Workshop changenote submitted through Steamworks."
                                 : $"SteamUGC.SubmitItemUpdate returned {result}; IOFailure={ioFailure}.");
                     }
 

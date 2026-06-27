@@ -69,6 +69,51 @@ public sealed class WorkshopTagUpdaterTests : IDisposable
         Assert.Contains("Dry run", result.Message);
     }
 
+    [Fact]
+    public async Task CreateChangeNotePlan_Accepts_Explicit_Id_Without_Tags()
+    {
+        var updater = CreateUpdater();
+
+        var plan = await updater.CreateChangeNotePlanAsync(
+            "3727949765",
+            "This release fixes startup and makes reconnecting more reliable.");
+
+        Assert.Equal((ulong)3727949765, plan.PublishedFileId);
+        Assert.Empty(plan.Tags);
+        Assert.Equal("This release fixes startup and makes reconnecting more reliable.", plan.ChangeNote);
+        Assert.Equal(nativeLibraryPath, plan.NativeLibraryPath);
+        Assert.DoesNotContain(plan.ValidationIssues, issue => issue.Code == "missing_tags");
+        Assert.DoesNotContain(plan.ValidationIssues, issue => issue.Severity == "error");
+    }
+
+    [Fact]
+    public async Task CreateChangeNotePlan_Requires_ChangeNote()
+    {
+        var updater = CreateUpdater();
+
+        var plan = await updater.CreateChangeNotePlanAsync("3727949765", " ");
+
+        Assert.Contains(plan.ValidationIssues, issue => issue.Code == "missing_change_note" && issue.Severity == "error");
+    }
+
+    [Fact]
+    public async Task SetChangeNote_DryRun_Returns_NonMutating_Result_For_Explicit_Id()
+    {
+        var updater = CreateUpdater();
+
+        var result = await updater.SetChangeNoteAsync(
+            3727949765,
+            "This release fixes startup and makes reconnecting more reliable.",
+            confirm: false);
+
+        Assert.False(result.Success);
+        Assert.Equal((ulong)3727949765, result.PublishedFileId);
+        Assert.Empty(result.Tags);
+        Assert.Equal("This release fixes startup and makes reconnecting more reliable.", result.ChangeNote);
+        Assert.False(result.SteamInitialized);
+        Assert.Contains("Dry run", result.Message);
+    }
+
     public void Dispose()
     {
         Environment.SetEnvironmentVariable("STEAMWORKS_NATIVE_LIB", previousNativeLibrary);

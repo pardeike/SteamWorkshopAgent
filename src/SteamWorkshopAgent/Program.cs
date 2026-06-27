@@ -24,8 +24,12 @@ public static class Program
         builder.Services.AddSingleton<ModInspector>();
         builder.Services.AddSingleton<GitHubReleaseReader>();
         builder.Services.AddSingleton<WorkshopPlanner>();
+        builder.Services.AddSingleton<WorkshopTargetResolver>();
+        builder.Services.AddSingleton<WorkshopDescriptionReader>();
         builder.Services.AddSingleton<WorkshopTagUpdater>();
+        builder.Services.AddSingleton<GitReleaseWorktree>();
         builder.Services.AddSingleton<WorkshopPublisher>();
+        builder.Services.AddSingleton<WorkshopDescriptionUpdater>();
 
         builder.Services
             .AddMcpServer()

@@ -38,6 +38,18 @@ public static class RimWorldModTools
 [McpServerToolType]
 public static class WorkshopTools
 {
+    [McpServerTool, Description("Read the current main Steam Workshop item title and description through Steam's public item details API.")]
+    public static Task<string> WorkshopGetDescription(
+        [Description("Absolute path to a RimWorld mod source/deployed folder with About/PublishedFileId.txt, or a numeric Workshop published file id.")]
+        string modPathOrPublishedFileId)
+    {
+        return ToolJson.TryAsync(async () =>
+        {
+            var reader = ServiceLocator.Get<WorkshopDescriptionReader>();
+            return await reader.GetDescriptionAsync(modPathOrPublishedFileId);
+        });
+    }
+
     [McpServerTool, Description("Create a dry-run Steam Workshop release plan and VDF content from a GitHub release.")]
     public static Task<string> WorkshopReleasePlan(
         [Description("Absolute path to the RimWorld mod repository.")]
@@ -45,12 +57,14 @@ public static class WorkshopTools
         [Description("GitHub release tag, e.g. v3.6.2.0.")]
         string tag,
         [Description("When true, include About/About.xml description in the VDF. Defaults to false to preserve the existing Workshop description on updates.")]
-        bool updateDescription = false)
+        bool updateDescription = false,
+        [Description("Optional Steam Workshop changenote override. If omitted, the GitHub release body is used.")]
+        string? changeNote = null)
     {
         return ToolJson.TryAsync(async () =>
         {
             var planner = ServiceLocator.Get<WorkshopPlanner>();
-            return await planner.CreateReleasePlanAsync(repoPath, tag, updateDescription);
+            return await planner.CreateReleasePlanAsync(repoPath, tag, updateDescription, changeNote: changeNote);
         });
     }
 
@@ -65,12 +79,14 @@ public static class WorkshopTools
         [Description("Steam username for `steamcmd +login`. If omitted, STEAMCMD_USER is used. Passwords are never accepted or stored.")]
         string? steamUser = null,
         [Description("When true, update the main Workshop description from About/About.xml. Defaults to false.")]
-        bool updateDescription = false)
+        bool updateDescription = false,
+        [Description("Optional Steam Workshop changenote override. If omitted, the GitHub release body is used.")]
+        string? changeNote = null)
     {
         return ToolJson.TryAsync(async () =>
         {
             var publisher = ServiceLocator.Get<WorkshopPublisher>();
-            return await publisher.PublishReleaseAsync(repoPath, tag, confirm, updateDescription, steamUser);
+            return await publisher.PublishReleaseAsync(repoPath, tag, confirm, updateDescription, steamUser, changeNote);
         });
     }
 
@@ -109,6 +125,44 @@ public static class WorkshopTools
         {
             var updater = ServiceLocator.Get<WorkshopTagUpdater>();
             return await updater.SetTagsAsync(modPathOrPublishedFileId, tags ?? [], confirm, changeNote);
+        });
+    }
+
+    [McpServerTool, Description("Update the main Steam Workshop item description only, using SteamCMD metadata upload. Does not rebuild content, change preview images, or set tags. Requires confirm=true and a Steam username or STEAMCMD_USER.")]
+    public static Task<string> WorkshopUpdateDescription(
+        [Description("Absolute path to a RimWorld mod source/deployed folder with About/PublishedFileId.txt, or a numeric Workshop published file id.")]
+        string modPathOrPublishedFileId,
+        [Description("The complete main Workshop page description to set.")]
+        string description,
+        [Description("Must be true to run SteamCMD. False returns the dry-run VDF plan.")]
+        bool confirm = false,
+        [Description("Steam username for `steamcmd +login`. If omitted, STEAMCMD_USER is used. Passwords are never accepted or stored.")]
+        string? steamUser = null,
+        [Description("Optional replacement title. Omit to preserve the existing Workshop title.")]
+        string? title = null,
+        [Description("Optional Workshop changenote. Omit to avoid intentionally writing release/update note text.")]
+        string? changeNote = null)
+    {
+        return ToolJson.TryAsync(async () =>
+        {
+            var updater = ServiceLocator.Get<WorkshopDescriptionUpdater>();
+            return await updater.UpdateDescriptionAsync(modPathOrPublishedFileId, description, confirm, steamUser, title, changeNote);
+        });
+    }
+
+    [McpServerTool, Description("Submit a changenote update for an existing RimWorld Workshop item through local Steamworks. Requires confirm=true and a logged-on Steam desktop client session.")]
+    public static Task<string> WorkshopSetChangeNote(
+        [Description("Absolute path to a RimWorld mod source/deployed folder with About/PublishedFileId.txt, or a numeric Workshop published file id.")]
+        string modPathOrPublishedFileId,
+        [Description("Workshop changenote text to submit.")]
+        string changeNote,
+        [Description("Must be true to submit the changenote update. False returns the dry-run plan.")]
+        bool confirm = false)
+    {
+        return ToolJson.TryAsync(async () =>
+        {
+            var updater = ServiceLocator.Get<WorkshopTagUpdater>();
+            return await updater.SetChangeNoteAsync(modPathOrPublishedFileId, changeNote, confirm);
         });
     }
 }
