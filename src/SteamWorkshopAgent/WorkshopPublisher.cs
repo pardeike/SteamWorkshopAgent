@@ -182,14 +182,29 @@ public sealed class WorkshopPublisher(
         if (string.IsNullOrWhiteSpace(mod.ProjectPath))
             throw new InvalidOperationException("This mod path does not include a build project. Use the existing folder as Workshop content instead of building it.");
 
+        var arguments = CreateBuildReleaseArguments(mod.ProjectPath, stagingRoot);
         var buildResult = await processRunner.RunAsync(
             "dotnet",
-            ["build", mod.ProjectPath, "-c", "Release", $"-p:RIMWORLD_MOD_DIR={stagingRoot}"],
+            arguments,
             workingDirectory: mod.RepoPath,
             timeout: TimeSpan.FromMinutes(5));
 
         if (buildResult.ExitCode != 0)
             throw new InvalidOperationException($"Release build failed with exit code {buildResult.ExitCode}.\nSTDOUT:\n{buildResult.Stdout}\nSTDERR:\n{buildResult.Stderr}");
+    }
+
+    internal static IReadOnlyList<string> CreateBuildReleaseArguments(
+        string projectPath,
+        string stagingRoot)
+    {
+        return [
+            "build",
+            projectPath,
+            "-c",
+            "Release",
+            $"-p:RIMWORLD_MOD_DIR={stagingRoot}",
+            "-p:BuildBridgeTools=false"
+        ];
     }
 
     private static ulong? TryReadPublishedFileId(string vdfPath)

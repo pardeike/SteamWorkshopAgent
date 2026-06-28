@@ -140,9 +140,13 @@ Four-part mod versions with a trailing `.0` are shortened for the Steam heading 
 
 Publishes a confirmed release to Steam Workshop. After SteamCMD uploads the content, the tool submits the intended `Mod` plus supported RimWorld version tags through the local Steamworks tag updater using the same release changenote, so the separate tag submit does not replace the visible update note with generic tag text.
 
+Source release builds always pass `BuildBridgeTools=false` so GitHub/Steam release artifacts contain only the main mod payload. Local validation builds can keep building companion BridgeTools by default.
+
 `WorkshopCreateNewMod`
 
 Creates a new Steam Workshop item for a local RimWorld mod through SteamCMD. The tool defaults to a dry run. With `confirm=true`, it builds source repositories into a temporary staging directory or uploads an already-built mod folder directly, creates a new private Workshop item by using `publishedfileid` `0`, reads the id SteamCMD writes back into the VDF, submits the `Mod` tag plus supported RimWorld version tags such as `1.6` through Steamworks, and saves the id to `About/PublishedFileId.txt`.
+
+Source `new-mod` builds use the same release-build convention and pass `BuildBridgeTools=false`.
 
 `WorkshopSetTags`
 
@@ -165,7 +169,7 @@ This submits a new Steamworks item update with the supplied changenote. It does 
 The publish path is intentionally conservative:
 
 1. Refuse to publish from a dirty git worktree.
-2. For release publishes, create a detached temporary Git worktree at the requested tag and build that source tree in Release mode into a temporary staging directory. This keeps the caller's checkout clean even when the mod build rewrites tracked local deploy artifacts.
+2. For release publishes, create a detached temporary Git worktree at the requested tag and build that source tree in Release mode into a temporary staging directory with `BuildBridgeTools=false`. This keeps the caller's checkout clean even when the mod build rewrites tracked local deploy artifacts.
 3. Validate the staged mod content and preview image.
 4. Write `workshop.vdf` and `plan.json` under `~/Library/Application Support/SteamWorkshopAgent/runs/...`.
 5. Run SteamCMD with `+workshop_build_item`.
