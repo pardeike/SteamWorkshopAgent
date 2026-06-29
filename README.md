@@ -73,7 +73,7 @@ dotnet test SteamWorkshopAgent.slnx
 
 ## Local Install
 
-This workspace follows the same local MCP install pattern as the active `gabs` and `decompiler` servers: publish a stable native binary under `~/.local/lib/<server-dir>/` and point Codex at that installed binary.
+This workspace follows the same local MCP install pattern as the active `gabs` and `decompiler` servers: publish a stable native binary under `~/.codex/mcp-servers/<server-dir>/` and point Codex at that installed binary.
 
 ```sh
 make install
@@ -82,7 +82,7 @@ make install
 The install target writes:
 
 ```text
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent
 ```
 
 Local redeploys should overwrite that binary in place. Do not point MCP config at repo-local build output.
@@ -93,7 +93,7 @@ Codex CLI:
 
 ```toml
 [mcp_servers.steam-workshop-agent]
-command = "/Users/you/.local/lib/steam-workshop-agent/SteamWorkshopAgent"
+command = "/Users/you/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent"
 args = ["server"]
 ```
 
@@ -101,7 +101,7 @@ Generic MCP client:
 
 ```json
 {
-  "command": "/Users/you/.local/lib/steam-workshop-agent/SteamWorkshopAgent",
+  "command": "/Users/you/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent",
   "args": ["server"]
 }
 ```
@@ -185,20 +185,20 @@ The publish tool defaults to dry-run behavior unless `confirm` is `true`.
 The installed binary also has a thin CLI over the same services used by the MCP tools:
 
 ```sh
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent status
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent inspect /path/to/mod/repo-or-folder
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent plan /path/to/mod/repo v1.2.3
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent plan /path/to/mod/repo v1.2.3 --changenote "Simple public release note"
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent publish /path/to/mod/repo v1.2.3 --confirm --steam-user your_steam_username
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent publish /path/to/mod/repo v1.2.3 --confirm --steam-user your_steam_username --changenote "Simple public release note"
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent new-mod /path/to/mod/repo-or-folder --confirm --steam-user your_steam_username
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent description-get /path/to/mod/repo-or-folder
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent description-get 928376710
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent description /path/to/mod/repo-or-folder description.txt --confirm --steam-user your_steam_username
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent description 928376710 description.txt --confirm --steam-user your_steam_username
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent set-tags /path/to/mod/repo-or-folder --confirm
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent set-tags 3727949765 Mod 1.6 --confirm
-~/.local/lib/steam-workshop-agent/SteamWorkshopAgent set-changenote 3727949765 --changenote "Simple public release note" --confirm
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent status
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent inspect /path/to/mod/repo-or-folder
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent plan /path/to/mod/repo v1.2.3
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent plan /path/to/mod/repo v1.2.3 --changenote "Simple public release note"
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent publish /path/to/mod/repo v1.2.3 --confirm --steam-user your_steam_username
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent publish /path/to/mod/repo v1.2.3 --confirm --steam-user your_steam_username --changenote "Simple public release note"
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent new-mod /path/to/mod/repo-or-folder --confirm --steam-user your_steam_username
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent description-get /path/to/mod/repo-or-folder
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent description-get 928376710
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent description /path/to/mod/repo-or-folder description.txt --confirm --steam-user your_steam_username
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent description 928376710 description.txt --confirm --steam-user your_steam_username
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent set-tags /path/to/mod/repo-or-folder --confirm
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent set-tags 3727949765 Mod 1.6 --confirm
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent set-changenote 3727949765 --changenote "Simple public release note" --confirm
 ```
 
 ## Current Limits

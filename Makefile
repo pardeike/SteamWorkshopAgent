@@ -2,7 +2,7 @@
 
 SLN ?= SteamWorkshopAgent.slnx
 PROJECT ?= src/SteamWorkshopAgent/SteamWorkshopAgent.csproj
-INSTALL_DIR ?= $(HOME)/.local/lib/steam-workshop-agent
+INSTALL_DIR ?= $(HOME)/.codex/mcp-servers/steam-workshop-agent
 BINARY_NAME ?= SteamWorkshopAgent
 RID ?= osx-arm64
 
