@@ -125,14 +125,14 @@ Creates a dry-run plan for a GitHub release tag. It reads the GitHub release bod
 Steam changenotes are formatted from the mod metadata and GitHub release body by default:
 
 ```text
-Mod Name v1.2.3
+v1.2.3
 
 GitHub release body
 
 GitHub release: https://github.com/owner/repo/releases/tag/v1.2.3.0
 ```
 
-Pass `changeNote` to use custom Steam changenote text for the plan or publish. The agent still prefixes the mod/version heading unless your text already starts with it.
+Pass `changeNote` to use custom Steam changenote text for the plan or publish. The agent still prefixes the version heading unless your text already starts with it.
 
 Four-part mod versions with a trailing `.0` are shortened for the Steam heading only.
 
@@ -141,6 +141,10 @@ Four-part mod versions with a trailing `.0` are shortened for the Steam heading 
 Publishes a confirmed release to Steam Workshop. After SteamCMD uploads the content, the tool submits the intended `Mod` plus supported RimWorld version tags through the local Steamworks tag updater using the same release changenote, so the separate tag submit does not replace the visible update note with generic tag text.
 
 Source release builds always pass `BuildBridgeTools=false` so GitHub/Steam release artifacts contain only the main mod payload. Local validation builds can keep building companion BridgeTools by default.
+
+`WorkshopPublishDeployedRelease`
+
+Publishes an already-built deployed mod folder to Steam Workshop using the same GitHub-release changenote formatting as `WorkshopPublishRelease`. This path does not rebuild the mod and does not refresh Workshop tags. Use it when a separate Release build has already produced the exact deployed folder that should be uploaded.
 
 `WorkshopCreateNewMod`
 
@@ -191,6 +195,7 @@ The installed binary also has a thin CLI over the same services used by the MCP 
 ~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent plan /path/to/mod/repo v1.2.3 --changenote "Simple public release note"
 ~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent publish /path/to/mod/repo v1.2.3 --confirm --steam-user your_steam_username
 ~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent publish /path/to/mod/repo v1.2.3 --confirm --steam-user your_steam_username --changenote "Simple public release note"
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent publish-deployed /path/to/mod/repo v1.2.3 /path/to/deployed/mod --confirm --steam-user your_steam_username
 ~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent new-mod /path/to/mod/repo-or-folder --confirm --steam-user your_steam_username
 ~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent description-get /path/to/mod/repo-or-folder
 ~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent description-get 928376710

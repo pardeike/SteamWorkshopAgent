@@ -45,7 +45,7 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
             {
                 new ValidationIssue(
                     "steamcmd_tags_preserved",
-                    "SteamCMD workshop_build_item is used for content upload only. Confirmed publish runs submit Workshop tags separately through the local Steamworks tag updater.",
+                    "SteamCMD workshop_build_item uploads content without replacing existing Workshop tags; tag submission is a separate optional step.",
                     "info")
             })
             .ToList();
@@ -118,7 +118,8 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
 
     public static string CreateSteamChangeNote(ModInspection mod, GitHubReleaseInfo release, string? changeNoteOverride = null)
     {
-        var heading = $"{mod.ModName} v{FormatSteamVersion(mod.ModVersion)}";
+        var heading = $"v{FormatSteamVersion(mod.ModVersion)}";
+        var legacyHeading = $"{mod.ModName} {heading}";
         var text = string.IsNullOrWhiteSpace(changeNoteOverride)
             ? release.ChangeNote.Trim()
             : changeNoteOverride.Trim();
@@ -126,7 +127,7 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
         if (string.IsNullOrWhiteSpace(text))
             return heading;
 
-        if (HasSteamReleaseHeading(text, heading))
+        if (HasSteamReleaseHeading(text, heading) || HasSteamReleaseHeading(text, legacyHeading))
             return text;
 
         return $"{heading}\n\n{text}";

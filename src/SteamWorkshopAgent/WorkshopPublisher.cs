@@ -85,6 +85,68 @@ public sealed class WorkshopPublisher(
             finalPlan);
     }
 
+    public async Task<object> PublishDeployedReleaseAsync(
+        string repoPath,
+        string tag,
+        string contentFolder,
+        bool confirm,
+        bool updateDescription = false,
+        string? steamUser = null,
+        string? changeNote = null)
+    {
+        var resolvedContentFolder = Path.GetFullPath(contentFolder);
+        if (!confirm)
+            return await workshopPlanner.CreateReleasePlanAsync(
+                repoPath,
+                tag,
+                updateDescription,
+                contentFolderOverride: resolvedContentFolder,
+                changeNote: changeNote);
+
+        await ThrowIfDirtyAsync(repoPath);
+
+        var finalPlan = await workshopPlanner.CreateReleasePlanAsync(
+            repoPath,
+            tag,
+            updateDescription,
+            contentFolderOverride: resolvedContentFolder,
+            changeNote: changeNote);
+
+        Directory.CreateDirectory(finalPlan.RunDirectory);
+        Validation.ThrowIfErrors(finalPlan.ValidationIssues);
+        Directory.CreateDirectory(Path.GetDirectoryName(finalPlan.VdfPath)!);
+        await File.WriteAllTextAsync(finalPlan.VdfPath, finalPlan.VdfContent);
+        await File.WriteAllTextAsync(
+            Path.Combine(finalPlan.RunDirectory, "plan.json"),
+            JsonSerializer.Serialize(finalPlan, ToolJson.Options));
+
+        var steamCmdPath = steamEnvironment.RequireSteamCmd();
+        var resolvedSteamUser = await steamEnvironment.RequireSteamUserAsync(steamUser);
+        var steamResult = await processRunner.RunAsync(
+            steamCmdPath,
+            ["+login", resolvedSteamUser, "+workshop_build_item", finalPlan.VdfPath, "+quit"],
+            workingDirectory: finalPlan.RunDirectory,
+            timeout: TimeSpan.FromMinutes(15));
+
+        var logTails = steamEnvironment.GetWorkshopLogPaths()
+            .Where(File.Exists)
+            .Select(path => TailFile(path, 80))
+            .ToList();
+
+        return new PublishResult(
+            steamResult.ExitCode == 0,
+            steamResult.ExitCode,
+            finalPlan.Mod.WorkshopUrl,
+            finalPlan.RunDirectory,
+            finalPlan.VdfPath,
+            finalPlan.ContentFolder,
+            Truncate(steamResult.Stdout, 12000),
+            Truncate(steamResult.Stderr, 12000),
+            logTails,
+            TagUpdate: null,
+            finalPlan);
+    }
+
     public async Task<object> CreateNewModAsync(
         string repoPath,
         bool confirm,

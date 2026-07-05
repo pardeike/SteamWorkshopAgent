@@ -30,6 +30,14 @@ internal static class Cli
                     HasFlag(args, "--update-description"),
                     GetOption(args, "--steam-user"),
                     GetOption(args, "--changenote")),
+                "publish-deployed" => await services.WorkshopPublisher.PublishDeployedReleaseAsync(
+                    RequireArg(args, 1, "repoPath"),
+                    RequireArg(args, 2, "tag"),
+                    RequireArg(args, 3, "contentFolder"),
+                    HasFlag(args, "--confirm"),
+                    HasFlag(args, "--update-description"),
+                    GetOption(args, "--steam-user"),
+                    GetOption(args, "--changenote")),
                 "new-mod" => await services.WorkshopPublisher.CreateNewModAsync(
                     RequireArg(args, 1, "modPath"),
                     HasFlag(args, "--confirm"),
@@ -145,6 +153,7 @@ internal static class Cli
               SteamWorkshopAgent inspect <repoPath>
               SteamWorkshopAgent plan <repoPath> <tag> [--update-description] [--changenote TEXT]
               SteamWorkshopAgent publish <repoPath> <tag> [--confirm] [--steam-user USER] [--update-description] [--changenote TEXT]
+              SteamWorkshopAgent publish-deployed <repoPath> <tag> <contentFolder> [--confirm] [--steam-user USER] [--update-description] [--changenote TEXT]
               SteamWorkshopAgent new-mod <modPath> [--confirm] [--steam-user USER] [--visibility private|friends|public|unlisted] [--changenote TEXT]
               SteamWorkshopAgent description-get <modPath|publishedFileId>
               SteamWorkshopAgent description <modPath|publishedFileId> <descriptionFile> [--confirm] [--steam-user USER] [--title TEXT] [--changenote TEXT]

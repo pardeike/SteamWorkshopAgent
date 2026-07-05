@@ -90,6 +90,30 @@ public static class WorkshopTools
         });
     }
 
+    [McpServerTool, Description("Publish an already-built deployed RimWorld mod folder to Steam Workshop using GitHub release metadata for the changenote. Does not rebuild content or refresh tags. Requires confirm=true and a Steam username or STEAMCMD_USER.")]
+    public static Task<string> WorkshopPublishDeployedRelease(
+        [Description("Absolute path to the RimWorld mod source repository used for GitHub release metadata.")]
+        string repoPath,
+        [Description("GitHub release tag, e.g. v3.6.2.0.")]
+        string tag,
+        [Description("Absolute path to the already-built deployed mod folder to upload as Workshop content.")]
+        string contentFolder,
+        [Description("Must be true to run SteamCMD upload. False returns the dry-run plan.")]
+        bool confirm = false,
+        [Description("Steam username for `steamcmd +login`. If omitted, STEAMCMD_USER is used. Passwords are never accepted or stored.")]
+        string? steamUser = null,
+        [Description("When true, update the main Workshop description from About/About.xml. Defaults to false.")]
+        bool updateDescription = false,
+        [Description("Optional Steam Workshop changenote override. If omitted, the GitHub release body is used.")]
+        string? changeNote = null)
+    {
+        return ToolJson.TryAsync(async () =>
+        {
+            var publisher = ServiceLocator.Get<WorkshopPublisher>();
+            return await publisher.PublishDeployedReleaseAsync(repoPath, tag, contentFolder, confirm, updateDescription, steamUser, changeNote);
+        });
+    }
+
     [McpServerTool, Description("Create a new private Steam Workshop item for a RimWorld mod source repository or deployed mod folder using SteamCMD, submit Mod/version tags through local Steamworks, and write the returned id to About/PublishedFileId.txt. Requires confirm=true and a Steam username or STEAMCMD_USER.")]
     public static Task<string> WorkshopCreateNewMod(
         [Description("Absolute path to the RimWorld mod source repository or deployed mod folder.")]

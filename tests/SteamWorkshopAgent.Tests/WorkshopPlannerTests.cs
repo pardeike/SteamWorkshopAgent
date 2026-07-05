@@ -39,7 +39,7 @@ public sealed class WorkshopPlannerTests
     }
 
     [Fact]
-    public void CreateSteamChangeNote_Prefixes_Mod_Name_And_Short_Version()
+    public void CreateSteamChangeNote_Prefixes_Short_Version()
     {
         var mod = TestModRepo.SampleInspection() with { ModVersion = "1.2.3.0" };
         var release = new GitHubReleaseInfo(
@@ -52,12 +52,28 @@ public sealed class WorkshopPlannerTests
         var changeNote = WorkshopPlanner.CreateSteamChangeNote(mod, release);
 
         Assert.Equal(
-            "Test Mod v1.2.3\n\nRelease body\n\nGitHub release: https://github.com/example/TestMod/releases/tag/v1.2.3.0",
+            "v1.2.3\n\nRelease body\n\nGitHub release: https://github.com/example/TestMod/releases/tag/v1.2.3.0",
             changeNote);
     }
 
     [Fact]
     public void CreateSteamChangeNote_Does_Not_Duplicate_Existing_Header()
+    {
+        var mod = TestModRepo.SampleInspection() with { ModVersion = "1.2.3.0" };
+        var release = new GitHubReleaseInfo(
+            TagName: "v1.2.3.0",
+            Name: "Test Mod 1.2.3",
+            Body: "v1.2.3\n\nRelease body",
+            Url: "https://github.com/example/TestMod/releases/tag/v1.2.3.0",
+            ChangeNote: "v1.2.3\n\nRelease body\n\nGitHub release: https://github.com/example/TestMod/releases/tag/v1.2.3.0");
+
+        var changeNote = WorkshopPlanner.CreateSteamChangeNote(mod, release);
+
+        Assert.Equal(release.ChangeNote, changeNote);
+    }
+
+    [Fact]
+    public void CreateSteamChangeNote_Does_Not_Duplicate_Legacy_Mod_Name_Header()
     {
         var mod = TestModRepo.SampleInspection() with { ModVersion = "1.2.3.0" };
         var release = new GitHubReleaseInfo(
@@ -89,7 +105,7 @@ public sealed class WorkshopPlannerTests
             "This release fixes startup and makes reconnecting more reliable.");
 
         Assert.Equal(
-            "Test Mod v1.2.3\n\nThis release fixes startup and makes reconnecting more reliable.",
+            "v1.2.3\n\nThis release fixes startup and makes reconnecting more reliable.",
             changeNote);
     }
 }
