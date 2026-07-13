@@ -1,14 +1,14 @@
 # SteamWorkshopAgent
 
-SteamWorkshopAgent is a local stdio MCP server for publishing RimWorld mod releases to Steam Workshop from an already-prepared GitHub release.
+SteamWorkshopAgent is a local stdio MCP server for publishing RimWorld mod releases to Steam Workshop from an already-prepared GitHub release. Its preferred backend uses the Steam desktop client's authenticated RimWorld session and never handles a Steam password or Steam Guard code.
 
-The server is aimed at the local mod-development workflow: build the mod in Release mode, stage the generated mod folder, create a SteamCMD VDF, and upload the Workshop update without opening RimWorld's mod UI.
+The server is aimed at the local mod-development workflow: build the mod in Release mode, stage the generated mod folder, and upload the Workshop update through the authenticated desktop Steam session without opening RimWorld's mod UI.
 
 ## Documentation
 
 - [README.md](README.md): user-facing overview and quick start
 - [AGENTS.md](AGENTS.md): local MCP redeploy convention for this workspace
-- [Architecture Enhancements](docs/ARCHITECTURE_ENHANCEMENTS.md): hybrid SteamCMD, Steamworks, and Workshop read-back architecture
+- [Architecture Enhancements](docs/ARCHITECTURE_ENHANCEMENTS.md): hybrid Steamworks, RimWorld companion, SteamCMD, and Workshop read-back architecture
 
 ## Highlights
 
@@ -17,7 +17,9 @@ The server is aimed at the local mod-development workflow: build the mod in Rele
 - Create the initial private Steam Workshop item for a new local mod from either a source repository or an already-built mod folder, and write the returned id to `About/PublishedFileId.txt`.
 - Read GitHub release notes through `gh release view`.
 - Generate a dry-run Workshop release plan before uploading.
-- Publish through SteamCMD `+workshop_build_item`.
+- Publish content through a detached Steamworks helper using the logged-on Steam desktop session.
+- Fall back before submission to a minimal headless RimWorld plus RimBridge companion when Steam does not authenticate the standalone helper.
+- Keep SteamCMD `+workshop_build_item` as an explicit emergency backend.
 - Submit RimWorld Workshop category tags such as `Mod` and `1.6` through the same local Steamworks UGC path RimWorld uses.
 - Preserve the existing Workshop page description unless `updateDescription` is explicitly enabled.
 - Read the current main Workshop page title and description through Steam's public item details API.
@@ -28,9 +30,10 @@ The server is aimed at the local mod-development workflow: build the mod in Rele
 ## Requirements
 
 - .NET 10 SDK to build from source
-- SteamCMD for Workshop uploads
 - GitHub CLI `gh` for reading release notes
-- A logged-on Steam desktop client session for local Steamworks tag updates
+- A running, online, logged-on Steam desktop client
+- RimWorld and RimBridgeServer for the in-game authenticated fallback
+- SteamCMD only when explicitly using the emergency `steamcmd` backend
 - A RimWorld mod source repository with a Release build target that supports `RIMWORLD_MOD_DIR` for release publishing
 - For initial `new-mod` uploads, either a source repository or an already-built RimWorld mod folder with `About/About.xml`, `About/Preview.png`, and versioned `Assemblies` content
 
@@ -48,7 +51,7 @@ export STEAMCMD_USER=your_steam_username
 
 When running as an MCP server, the client process may not inherit your terminal environment. If `steamUser` is omitted and `STEAMCMD_USER` is missing from the MCP process environment, the agent also probes your configured shell startup files and reads only that username value.
 
-Authenticate SteamCMD once in a real terminal:
+Normal publishing does not use SteamCMD authentication. If the Steamworks and RimWorld fallback paths are unavailable and you deliberately select `backend=steamcmd`, authenticate SteamCMD in a real terminal:
 
 ```sh
 steamcmd +login your_steam_username +quit
@@ -60,9 +63,9 @@ Enter the password and Steam Guard token there. SteamCMD stores a reusable login
 ~/Library/Application Support/Steam/config/config.vdf
 ```
 
-Future automated runs should use only the username. If the token is deleted, invalidated, or Steam requires fresh verification, refresh the login manually in a terminal and then rerun the MCP publish.
+That token is used only by the explicit SteamCMD fallback. Never pass passwords or Steam Guard codes to SteamWorkshopAgent, MCP tools, or chat.
 
-Workshop category tags are not submitted through SteamCMD. The agent calls RimWorld's local Steamworks UGC path for tag updates, using RimWorld app id `294100` and the native Steam API library bundled with the installed RimWorld app. This requires the desktop Steam client session to be logged on from Steamworks' point of view. If Steamworks reports `NotLoggedOn`, the upload can still succeed through SteamCMD, but the returned tag update result will show the tag submission failure.
+Routine updates preserve the Workshop item's existing category tags. The separate tag maintenance tool calls RimWorld's local Steamworks UGC path, using RimWorld app id `294100` and the native Steam API library bundled with the installed RimWorld app. It requires the desktop Steam client session to be logged on from Steamworks' point of view.
 
 ## Build And Test
 
@@ -112,7 +115,11 @@ Restart the MCP client after changing the installed binary or MCP configuration.
 
 `SteamStatus`
 
-Checks whether SteamCMD is installed, whether RimWorld is installed through Steam, whether RimWorld's native Steam API library is available for tag updates, and where Steam Workshop logs are expected.
+Checks whether SteamCMD is installed for emergency use, whether RimWorld is installed through Steam, whether RimWorld's native Steam API library is available for publishing, and where Steam Workshop logs are expected.
+
+`SteamSessionProbe`
+
+Starts a short-lived detached helper process, initializes RimWorld's native Steam API, and reports whether the Steam desktop session authenticated it as app `294100`. It does not read or modify a Workshop item.
 
 `RimWorldModInspect`
 
@@ -138,13 +145,23 @@ Four-part mod versions with a trailing `.0` are shortened for the Steam heading 
 
 `WorkshopPublishRelease`
 
-Publishes a confirmed release to Steam Workshop. After SteamCMD uploads the content, the tool submits the intended `Mod` plus supported RimWorld version tags through the local Steamworks tag updater using the same release changenote, so the separate tag submit does not replace the visible update note with generic tag text.
+Publishes a confirmed release to Steam Workshop. `backend=auto` and `backend=standalone` prepare an owner-verified, expiring request, fingerprint the exact staged content, and submit it through a detached Steamworks helper. If desktop Steam does not authenticate that helper, the returned result has `fallbackAllowed=true` and can be submitted once through the RimBridge companion running inside RimWorld. Existing tags are preserved.
+
+`backend=steamcmd` is an explicit emergency path. It is never selected automatically and is the only release path that needs a SteamCMD username or cached SteamCMD credentials.
 
 Source release builds always pass `BuildBridgeTools=false` so GitHub/Steam release artifacts contain only the main mod payload. Local validation builds can keep building companion BridgeTools by default.
 
 `WorkshopPublishDeployedRelease`
 
-Publishes an already-built deployed mod folder to Steam Workshop using the same GitHub-release changenote formatting as `WorkshopPublishRelease`. This path does not rebuild the mod and does not refresh Workshop tags. Use it when a separate Release build has already produced the exact deployed folder that should be uploaded.
+Publishes an already-built deployed mod folder through the same prepared-request and backend policy. This path does not rebuild the mod and does not refresh Workshop tags. Use it when a separate Release build has already produced the exact deployed folder that should be uploaded.
+
+`WorkshopPublishPrepared`
+
+Submits a still-valid prepared request through the detached helper. The request must live under the agent's run directory and its content fingerprint must still match.
+
+`WorkshopVerifyAfterPublish`
+
+Reads Steam's public item details and verifies the prepared title and update timestamp. It never retries an upload. A callback timeout after `submissionStarted=true` is deliberately ambiguous and must be verified before any human retry.
 
 `WorkshopCreateNewMod`
 
@@ -170,15 +187,17 @@ Submits a changenote update for an existing RimWorld Workshop item. Pass either 
 
 This submits a new Steamworks item update with the supplied changenote. It does not edit old historical changenote entries that Steam has already recorded.
 
-The publish path is intentionally conservative:
+The preferred publish path is intentionally conservative:
 
 1. Refuse to publish from a dirty git worktree.
 2. For release publishes, create a detached temporary Git worktree at the requested tag and build that source tree in Release mode into a temporary staging directory with `BuildBridgeTools=false`. This keeps the caller's checkout clean even when the mod build rewrites tracked local deploy artifacts.
 3. Validate the staged mod content and preview image.
-4. Write `workshop.vdf` and `plan.json` under `~/Library/Application Support/SteamWorkshopAgent/runs/...`.
-5. Run SteamCMD with `+workshop_build_item`.
-6. Submit category tags through the local Steamworks UGC updater with the same release changenote when SteamCMD succeeds.
-7. Return SteamCMD output, tag-update result, and recent Steam log tails.
+4. Write `plan.json` plus owner-only `steamworks-request.json` under `~/Library/Application Support/SteamWorkshopAgent/runs/...`.
+5. Record the current Workshop creator id and a deterministic digest of every staged content path and byte.
+6. Start a detached helper session with `setsid()`, verify app id and Steam account ownership, and apply title, optional description, preview, and content before `SubmitItemUpdate`.
+7. Persist a no-fallback `submit-intent` marker before calling `SubmitItemUpdate`, then a `submitted` marker after receiving a valid API call handle. This survives helper crashes and terminal disconnects.
+8. Allow a fallback only before the durable intent marker exists. Once submission may have started, a timeout or exception is ambiguous and automatic retry is forbidden.
+9. Persist `steamworks-result.json` with owner-only permissions and verify public Workshop state.
 
 The release tag must exist locally so Git can create the detached worktree. If the agent reports that the tag cannot be resolved, run `git fetch --tags` in the mod repository and retry.
 
@@ -193,9 +212,11 @@ The installed binary also has a thin CLI over the same services used by the MCP 
 ~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent inspect /path/to/mod/repo-or-folder
 ~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent plan /path/to/mod/repo v1.2.3
 ~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent plan /path/to/mod/repo v1.2.3 --changenote "Simple public release note"
-~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent publish /path/to/mod/repo v1.2.3 --confirm --steam-user your_steam_username
-~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent publish /path/to/mod/repo v1.2.3 --confirm --steam-user your_steam_username --changenote "Simple public release note"
-~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent publish-deployed /path/to/mod/repo v1.2.3 /path/to/deployed/mod --confirm --steam-user your_steam_username
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent steam-session-probe
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent publish /path/to/mod/repo v1.2.3 --confirm --backend auto
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent publish /path/to/mod/repo v1.2.3 --confirm --backend steamcmd --steam-user your_steam_username --changenote "Simple public release note"
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent publish-deployed /path/to/mod/repo v1.2.3 /path/to/deployed/mod --confirm --backend auto
+~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent verify '/path/to/run/steamworks-request.json' --wait-seconds 90
 ~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent new-mod /path/to/mod/repo-or-folder --confirm --steam-user your_steam_username
 ~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent description-get /path/to/mod/repo-or-folder
 ~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent description-get 928376710
@@ -212,8 +233,8 @@ The agent focuses on initial item creation, release publishing, single-item desc
 
 The new-mod path creates the initial item with private visibility by default. Pass `--visibility public`, `friends`, or `unlisted` only when that is intentional.
 
-SteamCMD is still used for content uploads. Category tags are submitted through the local Steamworks updater because SteamCMD accepts a `tags` block but does not reliably apply RimWorld category tags.
+SteamCMD remains available only as the explicitly selected `steamcmd` backend. It is not an automatic fallback because doing so would reintroduce independent credentials and make duplicate-submission handling harder.
 
-The generated update VDF preserves existing Workshop tags; the confirmed publish path applies the intended tags afterward with `ISteamUGC.SetItemTags`. If the local desktop Steamworks session reports `NotLoggedOn`, the agent returns that failure in `tagUpdate` and does not claim the tags were applied.
+Existing Workshop updates preserve tags. Steamworks tag submission remains available as a separate maintenance tool and for first-time items, but release publishing does not refresh tags.
 
 The tool only updates the Workshop description when `updateDescription` is explicitly `true`. By default it publishes the release changenote and leaves the long Workshop page description alone.

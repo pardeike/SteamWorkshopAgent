@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/SteamWorkshopAgent/SteamWorkshopAgent.csproj" />
+    <Project Path="src/SteamWorkshopAgent.BridgeTools/SteamWorkshopAgent.BridgeTools.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/SteamWorkshopAgent.Tests/SteamWorkshopAgent.Tests.csproj" />

@@ -23,8 +23,8 @@ public sealed class SteamEnvironment(ProcessRunner processRunner)
         }
 
         var setupHint = steamCmdPath == null
-            ? "Install SteamCMD first, for example: brew install steamcmd"
-            : "Run steamcmd +login <steam_user> +quit once interactively to establish Steam Guard/session state. Future runs should pass only the username; SteamCMD reuses the login token from Steam/config/config.vdf.";
+            ? "SteamCMD is not installed. This does not block the preferred desktop-Steam Steamworks backend; install SteamCMD only for the explicit emergency backend."
+            : "Normal publishing uses the logged-on Steam desktop session. SteamCMD and its separate login token are used only when backend=steamcmd is explicitly selected.";
         var tagUpdateHint = nativeLibraryPath == null
             ? "RimWorld's native Steam API library was not found. Install RimWorld through Steam or set STEAMWORKS_NATIVE_LIB."
             : "Tag updates use the desktop Steamworks session, not the SteamCMD login token. The desktop Steam client must be online and logged on; if Steam shows NO CONNECTION, tag updates return NotLoggedOn.";

@@ -88,6 +88,105 @@ public sealed record PublishResult(
     WorkshopTagUpdateResult? TagUpdate,
     WorkshopReleasePlan Plan);
 
+public sealed record WorkshopPublishRequest(
+    int SchemaVersion,
+    string RequestId,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset ExpiresAtUtc,
+    uint AppId,
+    ulong PublishedFileId,
+    ulong ExpectedCreatorSteamId,
+    string ContentFolder,
+    string PreviewFile,
+    string Title,
+    string? Description,
+    bool UpdateDescription,
+    bool PreserveTags,
+    int? Visibility,
+    string ChangeNote,
+    string SourceTag,
+    string SourceCommit,
+    string ContentDigest,
+    string ResultPath);
+
+public sealed record WorkshopPublishPreparation(
+    string Backend,
+    string RequestPath,
+    string ResultPath,
+    string ContentDigest,
+    WorkshopPublishRequest Request,
+    WorkshopReleasePlan? Plan);
+
+public sealed record SteamSessionProbeResult(
+    string Backend,
+    bool DetachedSession,
+    bool SteamInitialized,
+    bool SteamUserLoggedOn,
+    ulong? SteamId,
+    uint? SteamAppId,
+    string? NativeLibraryPath,
+    bool Ready,
+    string Message);
+
+public sealed record WorkshopPublishBackendResult(
+    string Backend,
+    string Stage,
+    bool Success,
+    bool SubmissionStarted,
+    bool OutcomeDefinitive,
+    bool FallbackAllowed,
+    bool SteamInitialized,
+    bool SteamUserLoggedOn,
+    ulong? SteamId,
+    uint? SteamAppId,
+    ulong PublishedFileId,
+    string? SubmitResult,
+    bool UserNeedsToAcceptWorkshopLegalAgreement,
+    string? UploadStatus,
+    ulong BytesProcessed,
+    ulong BytesTotal,
+    long DurationMs,
+    string RequestPath,
+    string ResultPath,
+    string WorkshopUrl,
+    string Message,
+    WorkshopReleasePlan? Plan = null);
+
+public sealed record WorkshopPublishVerificationResult(
+    bool Success,
+    ulong PublishedFileId,
+    string WorkshopUrl,
+    string ExpectedTitle,
+    string ActualTitle,
+    long? TimeUpdated,
+    DateTimeOffset RequestCreatedAtUtc,
+    bool TitleMatches,
+    bool UpdateTimestampMatches,
+    string RequestPath,
+    string Message);
+
+public sealed record PrivateWorkshopItemCreationResult(
+    bool Success,
+    bool SteamInitialized,
+    bool SteamUserLoggedOn,
+    ulong? SteamId,
+    uint? SteamAppId,
+    ulong? PublishedFileId,
+    string? SteamResult,
+    bool UserNeedsToAcceptWorkshopLegalAgreement,
+    bool TimedOut,
+    string Message);
+
+public sealed record PrivateWorkshopValidationResult(
+    bool Success,
+    bool ReusedExistingItem,
+    string ItemMetadataPath,
+    ulong PublishedFileId,
+    string RequestPath,
+    PrivateWorkshopItemCreationResult? Creation,
+    WorkshopPublishBackendResult Publish,
+    string Message);
+
 public sealed record CreateNewModResult(
     bool Success,
     int SteamCmdExitCode,

@@ -28,6 +28,10 @@ public static class Program
         builder.Services.AddSingleton<WorkshopDescriptionReader>();
         builder.Services.AddSingleton<WorkshopTagUpdater>();
         builder.Services.AddSingleton<GitReleaseWorktree>();
+        builder.Services.AddSingleton<WorkshopPublishRequestStore>();
+        builder.Services.AddSingleton<SteamworksPublisher>();
+        builder.Services.AddSingleton<WorkshopPublishVerifier>();
+        builder.Services.AddSingleton<PrivateWorkshopValidator>();
         builder.Services.AddSingleton<WorkshopPublisher>();
         builder.Services.AddSingleton<WorkshopDescriptionUpdater>();
 

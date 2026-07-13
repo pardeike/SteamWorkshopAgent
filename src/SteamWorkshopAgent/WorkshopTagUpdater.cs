@@ -280,6 +280,10 @@ public sealed class WorkshopTagUpdater(SteamEnvironment steamEnvironment, ModIns
 
     private static WorkshopTagUpdateResult SubmitUpdate(WorkshopTagUpdatePlan plan)
     {
+        if (!ProcessIsolation.TryDetachFromControllingTerminal(out var isolationMessage))
+            return Failure(plan, false, false, null, null, false, false,
+                $"Refusing to initialize Steamworks without a detached process session. {isolationMessage}");
+
         Environment.SetEnvironmentVariable("SteamAppId", plan.RimWorldAppId.ToString());
         Environment.SetEnvironmentVariable("SteamGameId", plan.RimWorldAppId.ToString());
         Environment.SetEnvironmentVariable("SteamOverlayGameId", plan.RimWorldAppId.ToString());

@@ -7,7 +7,10 @@ public sealed class WorkshopPublisher(
     SteamEnvironment steamEnvironment,
     WorkshopPlanner workshopPlanner,
     WorkshopTagUpdater tagUpdater,
-    GitReleaseWorktree releaseWorktree)
+    GitReleaseWorktree releaseWorktree,
+    WorkshopDescriptionReader descriptionReader,
+    WorkshopPublishRequestStore requestStore,
+    SteamworksPublisher steamworksPublisher)
 {
     public async Task<object> PublishReleaseAsync(
         string repoPath,
@@ -15,7 +18,8 @@ public sealed class WorkshopPublisher(
         bool confirm,
         bool updateDescription = false,
         string? steamUser = null,
-        string? changeNote = null)
+        string? changeNote = null,
+        string backend = "auto")
     {
         if (!confirm)
             return await workshopPlanner.CreateReleasePlanAsync(repoPath, tag, updateDescription, changeNote: changeNote);
@@ -55,34 +59,7 @@ public sealed class WorkshopPublisher(
             Path.Combine(finalPlan.RunDirectory, "plan.json"),
             JsonSerializer.Serialize(finalPlan, ToolJson.Options));
 
-        var steamCmdPath = steamEnvironment.RequireSteamCmd();
-        var resolvedSteamUser = await steamEnvironment.RequireSteamUserAsync(steamUser);
-        var steamResult = await processRunner.RunAsync(
-            steamCmdPath,
-            ["+login", resolvedSteamUser, "+workshop_build_item", finalPlan.VdfPath, "+quit"],
-            workingDirectory: finalPlan.RunDirectory,
-            timeout: TimeSpan.FromMinutes(15));
-
-        var logTails = steamEnvironment.GetWorkshopLogPaths()
-            .Where(File.Exists)
-            .Select(path => TailFile(path, 80))
-            .ToList();
-        var tagUpdate = steamResult.ExitCode == 0 && finalPlan.Mod.PublishedFileId is { } publishedFileId
-            ? await tagUpdater.SetTagsAsync(publishedFileId, finalPlan.IntendedTags, confirm: true, finalPlan.ChangeNote)
-            : null;
-
-        return new PublishResult(
-            steamResult.ExitCode == 0,
-            steamResult.ExitCode,
-            finalPlan.Mod.WorkshopUrl,
-            finalPlan.RunDirectory,
-            finalPlan.VdfPath,
-            finalPlan.ContentFolder,
-            Truncate(steamResult.Stdout, 12000),
-            Truncate(steamResult.Stderr, 12000),
-            logTails,
-            tagUpdate,
-            finalPlan);
+        return await PublishFinalPlanAsync(finalPlan, backend, steamUser);
     }
 
     public async Task<object> PublishDeployedReleaseAsync(
@@ -92,7 +69,8 @@ public sealed class WorkshopPublisher(
         bool confirm,
         bool updateDescription = false,
         string? steamUser = null,
-        string? changeNote = null)
+        string? changeNote = null,
+        string backend = "auto")
     {
         var resolvedContentFolder = Path.GetFullPath(contentFolder);
         if (!confirm)
@@ -120,31 +98,7 @@ public sealed class WorkshopPublisher(
             Path.Combine(finalPlan.RunDirectory, "plan.json"),
             JsonSerializer.Serialize(finalPlan, ToolJson.Options));
 
-        var steamCmdPath = steamEnvironment.RequireSteamCmd();
-        var resolvedSteamUser = await steamEnvironment.RequireSteamUserAsync(steamUser);
-        var steamResult = await processRunner.RunAsync(
-            steamCmdPath,
-            ["+login", resolvedSteamUser, "+workshop_build_item", finalPlan.VdfPath, "+quit"],
-            workingDirectory: finalPlan.RunDirectory,
-            timeout: TimeSpan.FromMinutes(15));
-
-        var logTails = steamEnvironment.GetWorkshopLogPaths()
-            .Where(File.Exists)
-            .Select(path => TailFile(path, 80))
-            .ToList();
-
-        return new PublishResult(
-            steamResult.ExitCode == 0,
-            steamResult.ExitCode,
-            finalPlan.Mod.WorkshopUrl,
-            finalPlan.RunDirectory,
-            finalPlan.VdfPath,
-            finalPlan.ContentFolder,
-            Truncate(steamResult.Stdout, 12000),
-            Truncate(steamResult.Stderr, 12000),
-            logTails,
-            TagUpdate: null,
-            finalPlan);
+        return await PublishFinalPlanAsync(finalPlan, backend, steamUser);
     }
 
     public async Task<object> CreateNewModAsync(
@@ -237,6 +191,60 @@ public sealed class WorkshopPublisher(
 
         if (!string.IsNullOrWhiteSpace(status.Stdout))
             throw new InvalidOperationException("Refusing to publish from a dirty worktree. Commit or stash local changes first.");
+    }
+
+    private async Task<object> PublishFinalPlanAsync(
+        WorkshopReleasePlan finalPlan,
+        string backend,
+        string? steamUser)
+    {
+        var normalizedBackend = backend.Trim().ToLowerInvariant();
+        if (normalizedBackend is not ("auto" or "standalone" or "steamcmd"))
+            throw new ArgumentException("Publish backend must be auto, standalone, or steamcmd.", nameof(backend));
+
+        if (normalizedBackend == "steamcmd")
+            return await PublishWithSteamCmdAsync(finalPlan, steamUser);
+
+        var publishedFileId = finalPlan.Mod.PublishedFileId
+            ?? throw new InvalidOperationException("A Workshop published file id is required.");
+        var current = await descriptionReader.GetDescriptionAsync(publishedFileId.ToString());
+        if (current.Result != 1 || !ulong.TryParse(current.Creator, out var creatorSteamId) || creatorSteamId == 0)
+            throw new InvalidOperationException("Steam did not return a verifiable creator account for the Workshop item.");
+
+        var preparation = await requestStore.CreateAsync(finalPlan, creatorSteamId);
+        var result = await steamworksPublisher.PublishPreparedAsync(preparation.RequestPath);
+        return result with { Plan = finalPlan };
+    }
+
+    private async Task<PublishResult> PublishWithSteamCmdAsync(
+        WorkshopReleasePlan finalPlan,
+        string? steamUser)
+    {
+        var steamCmdPath = steamEnvironment.RequireSteamCmd();
+        var resolvedSteamUser = await steamEnvironment.RequireSteamUserAsync(steamUser);
+        var steamResult = await processRunner.RunAsync(
+            steamCmdPath,
+            ["+login", resolvedSteamUser, "+workshop_build_item", finalPlan.VdfPath, "+quit"],
+            workingDirectory: finalPlan.RunDirectory,
+            timeout: TimeSpan.FromMinutes(15));
+
+        var logTails = steamEnvironment.GetWorkshopLogPaths()
+            .Where(File.Exists)
+            .Select(path => TailFile(path, 80))
+            .ToList();
+
+        return new PublishResult(
+            steamResult.ExitCode == 0,
+            steamResult.ExitCode,
+            finalPlan.Mod.WorkshopUrl,
+            finalPlan.RunDirectory,
+            finalPlan.VdfPath,
+            finalPlan.ContentFolder,
+            Truncate(steamResult.Stdout, 12000),
+            Truncate(steamResult.Stderr, 12000),
+            logTails,
+            TagUpdate: null,
+            finalPlan);
     }
 
     private async Task BuildReleaseAsync(ModInspection mod, string stagingRoot)

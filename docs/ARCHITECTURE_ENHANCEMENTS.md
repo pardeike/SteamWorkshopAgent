@@ -1,10 +1,10 @@
 # Architecture Enhancements
 
-SteamWorkshopAgent should treat Steam Workshop automation as a hybrid system rather than a single publishing backend.
+SteamWorkshopAgent treats Steam Workshop automation as a hybrid system rather than a single publishing backend.
 
-## Current Backend
+## Emergency SteamCMD Backend
 
-The current implementation uses SteamCMD for content upload:
+The emergency implementation uses SteamCMD for content upload:
 
 ```text
 steamcmd +login <user> +workshop_build_item <workshop.vdf> +quit
@@ -17,9 +17,9 @@ Its main weaknesses are:
 - It uses SteamCMD's own login token cache, not the already-authenticated Steam desktop client session.
 - It is poor at reading current Workshop state.
 - It has no natural structured read path for page stats, current tags, current previews, current rendered description, or previous changenotes.
-- Tag handling through VDF is less explicit than direct `ISteamUGC.SetItemTags`, so the generated update VDF preserves existing tags and the confirmed publish path submits tags separately through the Steamworks tag updater.
+- Tag handling through VDF is less explicit than direct `ISteamUGC.SetItemTags`, so the generated update VDF preserves existing tags.
 
-Keep SteamCMD as the content upload backend until the Steamworks publisher is complete, but do not make it the only long-term path.
+Keep SteamCMD as an explicit manual fallback. Do not select it automatically and do not run credential prechecks during normal releases.
 
 ## Steamworks Tag Backend
 
@@ -46,40 +46,55 @@ The current tag backend is a small local Steamworks helper that:
 - runs in a child helper process so native Steamworks stdout cannot corrupt stdio MCP traffic;
 - returns detailed Steam result codes, logged-on state, timeout state, and whether the user needs to accept the Workshop legal agreement.
 
-This backend is used by:
+The tag-only backend is used by:
 
 - `WorkshopSetTags` for existing items;
 - `WorkshopCreateNewMod` after SteamCMD returns the new `publishedfileid`;
-- `WorkshopPublishRelease` after SteamCMD completes an existing-item update.
 
 The correct RimWorld mod tag set is `Mod` plus the supported game versions from `About/About.xml`, for example `Mod` and `1.6`.
 
-On the current macOS setup, the Steamworks call path initializes but `SteamUser.BLoggedOn` reports false, matching RimWorld's `NotLoggedOn` failure. In that state SteamCMD content upload can still work, but the tag backend returns a failed `tagUpdate` result and does not claim the tags were applied.
+The detached full-publisher path has been validated against the authenticated desktop Steam session on the current macOS setup. If a future session reports `SteamUser.BLoggedOn=false`, the agent stops before submission and offers the in-game companion request as the next backend; it does not select SteamCMD automatically.
 
 ## Steamworks Publisher Backend
 
-A future preferred full publish backend should extend the local Steamworks helper so it:
+The preferred full publish backend extends the local Steamworks helper so it:
 
-- accepts staged content, preview path, title, description policy, tags, metadata, visibility, and changenote from the MCP server;
+- accepts staged content, preview path, title, description policy, visibility, and changenote from the MCP server;
 - uses `ISteamUGC.StartItemUpdate` / `SubmitItemUpdate`;
 - pumps Steam callbacks until completion;
 - reports upload progress through `GetItemUpdateProgress`;
 - returns detailed Steam result codes.
 
-Expected advantages:
+Implemented safeguards include:
+
+- owner-only, expiring request and result files;
+- exact Workshop creator-account verification before item mutation;
+- a deterministic content digest checked again in the publishing process;
+- `setsid()` isolation so native Steam calls cannot suspend the Codex terminal process group;
+- a strict pre-submit fallback boundary;
+- upload progress and structured callback results;
+- public item-details verification without automatic retries.
+
+Advantages:
 
 - No separate SteamCMD login setup when Steam is already authenticated.
-- Cleaner support for tags through `SetItemTags`.
+- Keeps existing item tags unchanged during routine releases.
 - Cleaner support for key-value tags and metadata through `AddItemKeyValueTag`, `RemoveItemKeyValueTags`, and `SetItemMetadata`.
 - Cleaner support for additional previews and videos through the `AddItemPreview*`, `UpdateItemPreview*`, and `RemoveItemPreview` calls.
 - Better parity with RimWorld's built-in Workshop behavior.
 
-Expected costs:
+Costs:
 
 - More implementation work than SteamCMD.
 - Needs Steamworks redistributables and careful app id setup.
 - Needs reliable callback handling, timeout behavior, and result normalization.
-- Needs testing around Steam not running, wrong account, legal agreement required, app license missing, and invalid Workshop ownership.
+- Needs continued testing around wrong accounts, legal agreement required, app license missing, and invalid Workshop ownership.
+
+## RimWorld Session Fallback
+
+Steam may initialize a standalone helper without authenticating it as a logged-on user. In that pre-submit state, use the companion DLL in the running RimWorld process. RimWorld owns Steam initialization and callback pumping; the companion only invokes `ISteamUGC` on the main thread.
+
+The GABS profile `rimworld-workshop-headless` uses an isolated save-data directory and only Core, Harmony, and RimBridgeServer. Its isolated `Config/Prefs.xml` sets `volumeMaster` to `0`, so background publishing cannot play game audio or change the player's normal sound settings. It uses `-batchmode` without `-nographics`: live validation showed that `-nographics` connects the bridge but triggers a continuous RimWorld texture-atlas exception loop. A normal visible RimWorld launch is the final Steamworks fallback. SteamCMD is separate and manual.
 
 ## Read And Stats Backend
 
@@ -114,13 +129,14 @@ Treat changenote-history reads as best-effort:
 
 ## Recommended Direction
 
-The long-term architecture should be:
+The implemented architecture is:
 
 1. Keep SteamCMD as a documented fallback publisher.
-2. Add non-mutating Workshop read tools using Web API / page snapshots.
-3. Extend the current Steamworks tag helper into a full preferred local publisher.
+2. Use non-mutating Workshop read tools using the public Web API.
+3. Use the full Steamworks helper as the preferred local publisher.
 4. Use read tools before and after publishing to validate expected Workshop state.
-5. Keep destructive or sensitive operations behind explicit confirmation flags.
+5. Use RimWorld's authenticated session only when the standalone helper fails before submission.
+6. Keep destructive or sensitive operations behind explicit confirmation flags.
 
 The target operator experience should be:
 

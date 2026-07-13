@@ -17,6 +17,16 @@ public static class SteamTools
             return await environment.GetStatusAsync(runSteamCmdQuit);
         });
     }
+
+    [McpServerTool, Description("Probe whether a detached helper can use the logged-on Steam desktop session as RimWorld. Does not modify Workshop state.")]
+    public static Task<string> SteamSessionProbe()
+    {
+        return ToolJson.TryAsync(async () =>
+        {
+            var publisher = ServiceLocator.Get<SteamworksPublisher>();
+            return await publisher.ProbeAsync();
+        });
+    }
 }
 
 [McpServerToolType]
@@ -68,7 +78,7 @@ public static class WorkshopTools
         });
     }
 
-    [McpServerTool, Description("Publish a GitHub release build to Steam Workshop using SteamCMD, then submit Mod/version tags through local Steamworks. Requires confirm=true and a Steam username or STEAMCMD_USER.")]
+    [McpServerTool, Description("Publish a GitHub release build to Steam Workshop. The default detached Steamworks backend uses the logged-on desktop Steam session; SteamCMD is an explicit emergency fallback. Requires confirm=true.")]
     public static Task<string> WorkshopPublishRelease(
         [Description("Absolute path to the RimWorld mod repository.")]
         string repoPath,
@@ -81,16 +91,18 @@ public static class WorkshopTools
         [Description("When true, update the main Workshop description from About/About.xml. Defaults to false.")]
         bool updateDescription = false,
         [Description("Optional Steam Workshop changenote override. If omitted, the GitHub release body is used.")]
-        string? changeNote = null)
+        string? changeNote = null,
+        [Description("Upload backend: auto or standalone uses detached Steamworks; steamcmd is the explicit credential-token fallback. Defaults to auto.")]
+        string backend = "auto")
     {
         return ToolJson.TryAsync(async () =>
         {
             var publisher = ServiceLocator.Get<WorkshopPublisher>();
-            return await publisher.PublishReleaseAsync(repoPath, tag, confirm, updateDescription, steamUser, changeNote);
+            return await publisher.PublishReleaseAsync(repoPath, tag, confirm, updateDescription, steamUser, changeNote, backend);
         });
     }
 
-    [McpServerTool, Description("Publish an already-built deployed RimWorld mod folder to Steam Workshop using GitHub release metadata for the changenote. Does not rebuild content or refresh tags. Requires confirm=true and a Steam username or STEAMCMD_USER.")]
+    [McpServerTool, Description("Publish an already-built deployed RimWorld mod folder using GitHub release metadata for the changenote. Does not rebuild content or refresh tags. The default backend uses the logged-on desktop Steam session. Requires confirm=true.")]
     public static Task<string> WorkshopPublishDeployedRelease(
         [Description("Absolute path to the RimWorld mod source repository used for GitHub release metadata.")]
         string repoPath,
@@ -105,12 +117,64 @@ public static class WorkshopTools
         [Description("When true, update the main Workshop description from About/About.xml. Defaults to false.")]
         bool updateDescription = false,
         [Description("Optional Steam Workshop changenote override. If omitted, the GitHub release body is used.")]
-        string? changeNote = null)
+        string? changeNote = null,
+        [Description("Upload backend: auto or standalone uses detached Steamworks; steamcmd is the explicit credential-token fallback. Defaults to auto.")]
+        string backend = "auto")
     {
         return ToolJson.TryAsync(async () =>
         {
             var publisher = ServiceLocator.Get<WorkshopPublisher>();
-            return await publisher.PublishDeployedReleaseAsync(repoPath, tag, contentFolder, confirm, updateDescription, steamUser, changeNote);
+            return await publisher.PublishDeployedReleaseAsync(repoPath, tag, contentFolder, confirm, updateDescription, steamUser, changeNote, backend);
+        });
+    }
+
+    [McpServerTool, Description("Submit an already-prepared owner-verified Workshop request through the detached Steamworks helper. Use only for a request produced by this agent. Requires no password.")]
+    public static Task<string> WorkshopPublishPrepared(
+        [Description("Absolute path to steamworks-request.json under the SteamWorkshopAgent runs directory.")]
+        string requestPath)
+    {
+        return ToolJson.TryAsync(async () =>
+        {
+            var publisher = ServiceLocator.Get<SteamworksPublisher>();
+            return await publisher.PublishPreparedAsync(requestPath);
+        });
+    }
+
+    [McpServerTool, Description("Verify a prepared Workshop update against Steam's public item details after submission. This read-only check never retries an upload.")]
+    public static Task<string> WorkshopVerifyAfterPublish(
+        [Description("Absolute path to steamworks-request.json under the SteamWorkshopAgent runs directory.")]
+        string requestPath,
+        [Description("Optional polling window from 0 to 180 seconds for Steam's public metadata to update.")]
+        int waitSeconds = 0)
+    {
+        return ToolJson.TryAsync(async () =>
+        {
+            var verifier = ServiceLocator.Get<WorkshopPublishVerifier>();
+            return await verifier.VerifyAsync(requestPath, waitSeconds);
+        });
+    }
+
+    [McpServerTool, Description("Create or update a dedicated private Workshop validation item through the detached Steamworks backend. This command refuses the public Zombieland item id and requires confirm=true.")]
+    public static Task<string> WorkshopValidatePrivatePublish(
+        [Description("Must be true to create or update the dedicated private validation item.")]
+        bool confirm = false)
+    {
+        return ToolJson.TryAsync(async () =>
+        {
+            var validator = ServiceLocator.Get<PrivateWorkshopValidator>();
+            return await validator.ValidateAsync(confirm);
+        });
+    }
+
+    [McpServerTool, Description("Prepare, but do not submit, a fresh request for the dedicated private validation item. This is intended for testing the RimWorld companion fallback.")]
+    public static Task<string> WorkshopPreparePrivateValidation(
+        [Description("Must be true to prepare the request.")]
+        bool confirm = false)
+    {
+        return ToolJson.TryAsync(async () =>
+        {
+            var validator = ServiceLocator.Get<PrivateWorkshopValidator>();
+            return await validator.PrepareExistingAsync(confirm);
         });
     }
 

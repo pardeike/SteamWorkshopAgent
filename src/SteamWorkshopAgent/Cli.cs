@@ -29,7 +29,8 @@ internal static class Cli
                     HasFlag(args, "--confirm"),
                     HasFlag(args, "--update-description"),
                     GetOption(args, "--steam-user"),
-                    GetOption(args, "--changenote")),
+                    GetOption(args, "--changenote"),
+                    GetOption(args, "--backend") ?? "auto"),
                 "publish-deployed" => await services.WorkshopPublisher.PublishDeployedReleaseAsync(
                     RequireArg(args, 1, "repoPath"),
                     RequireArg(args, 2, "tag"),
@@ -37,7 +38,8 @@ internal static class Cli
                     HasFlag(args, "--confirm"),
                     HasFlag(args, "--update-description"),
                     GetOption(args, "--steam-user"),
-                    GetOption(args, "--changenote")),
+                    GetOption(args, "--changenote"),
+                    GetOption(args, "--backend") ?? "auto"),
                 "new-mod" => await services.WorkshopPublisher.CreateNewModAsync(
                     RequireArg(args, 1, "modPath"),
                     HasFlag(args, "--confirm"),
@@ -62,6 +64,23 @@ internal static class Cli
                     RequireArg(args, 1, "modPathOrPublishedFileId"),
                     RequireOption(args, "--changenote"),
                     HasFlag(args, "--confirm")),
+                "steam-session-probe" => await services.SteamworksPublisher.ProbeAsync(),
+                "publish-prepared" => await services.SteamworksPublisher.PublishPreparedAsync(
+                    RequireArg(args, 1, "requestPath")),
+                "verify" => await services.WorkshopPublishVerifier.VerifyAsync(
+                    RequireArg(args, 1, "requestPath"),
+                    int.TryParse(GetOption(args, "--wait-seconds"), out var waitSeconds) ? waitSeconds : 0),
+                "private-validation" => await services.PrivateWorkshopValidator.ValidateAsync(
+                    HasFlag(args, "--confirm")),
+                "private-validation-prepare" => await services.PrivateWorkshopValidator.PrepareExistingAsync(
+                    HasFlag(args, "--confirm")),
+                "steamworks-session-probe-internal" => services.SteamworksPublisher.ProbeInCurrentProcess(
+                    RequireArg(args, 1, "nativeLibraryPath")),
+                "steamworks-publish-internal" => await services.SteamworksPublisher.PublishInCurrentProcessAsync(
+                    RequireArg(args, 1, "requestPath"),
+                    RequireArg(args, 2, "nativeLibraryPath")),
+                "steamworks-create-private-validation-item-internal" => services.PrivateWorkshopValidator.CreatePrivateItemInCurrentProcess(
+                    RequireArg(args, 1, "nativeLibraryPath")),
                 "steamworks-set-tags-internal" => services.WorkshopTagUpdater.SetTagsInCurrentProcess(
                     ulong.Parse(RequireArg(args, 1, "publishedFileId")),
                     WorkshopTagUpdater.DecodeJson<IReadOnlyList<string>>(RequireArg(args, 2, "tagsJsonBase64")),
@@ -89,10 +108,26 @@ internal static class Cli
         var releaseReader = new GitHubReleaseReader(processRunner);
         var planner = new WorkshopPlanner(modInspector, releaseReader);
         var targetResolver = new WorkshopTargetResolver(modInspector);
+        var descriptionReader = new WorkshopDescriptionReader(targetResolver);
         var tagUpdater = new WorkshopTagUpdater(steamEnvironment, modInspector, processRunner);
         var releaseWorktree = new GitReleaseWorktree(processRunner);
-        var publisher = new WorkshopPublisher(processRunner, steamEnvironment, planner, tagUpdater, releaseWorktree);
-        var descriptionReader = new WorkshopDescriptionReader(targetResolver);
+        var requestStore = new WorkshopPublishRequestStore(processRunner);
+        var steamworksPublisher = new SteamworksPublisher(steamEnvironment, processRunner, requestStore);
+        var publishVerifier = new WorkshopPublishVerifier(requestStore, descriptionReader);
+        var privateWorkshopValidator = new PrivateWorkshopValidator(
+            steamEnvironment,
+            processRunner,
+            requestStore,
+            steamworksPublisher);
+        var publisher = new WorkshopPublisher(
+            processRunner,
+            steamEnvironment,
+            planner,
+            tagUpdater,
+            releaseWorktree,
+            descriptionReader,
+            requestStore,
+            steamworksPublisher);
         var descriptionUpdater = new WorkshopDescriptionUpdater(processRunner, steamEnvironment, targetResolver);
 
         return new Services(
@@ -102,7 +137,10 @@ internal static class Cli
             tagUpdater,
             publisher,
             descriptionReader,
-            descriptionUpdater);
+            descriptionUpdater,
+            steamworksPublisher,
+            publishVerifier,
+            privateWorkshopValidator);
     }
 
     private static bool HasFlag(string[] args, string flag)
@@ -152,13 +190,18 @@ internal static class Cli
               SteamWorkshopAgent status [--run-steamcmd-quit]
               SteamWorkshopAgent inspect <repoPath>
               SteamWorkshopAgent plan <repoPath> <tag> [--update-description] [--changenote TEXT]
-              SteamWorkshopAgent publish <repoPath> <tag> [--confirm] [--steam-user USER] [--update-description] [--changenote TEXT]
-              SteamWorkshopAgent publish-deployed <repoPath> <tag> <contentFolder> [--confirm] [--steam-user USER] [--update-description] [--changenote TEXT]
+              SteamWorkshopAgent publish <repoPath> <tag> [--confirm] [--backend auto|standalone|steamcmd] [--steam-user USER] [--update-description] [--changenote TEXT]
+              SteamWorkshopAgent publish-deployed <repoPath> <tag> <contentFolder> [--confirm] [--backend auto|standalone|steamcmd] [--steam-user USER] [--update-description] [--changenote TEXT]
               SteamWorkshopAgent new-mod <modPath> [--confirm] [--steam-user USER] [--visibility private|friends|public|unlisted] [--changenote TEXT]
               SteamWorkshopAgent description-get <modPath|publishedFileId>
               SteamWorkshopAgent description <modPath|publishedFileId> <descriptionFile> [--confirm] [--steam-user USER] [--title TEXT] [--changenote TEXT]
               SteamWorkshopAgent set-tags <modPath|publishedFileId> [tag ...] [--confirm] [--changenote TEXT]
               SteamWorkshopAgent set-changenote <modPath|publishedFileId> --changenote TEXT [--confirm]
+              SteamWorkshopAgent steam-session-probe
+              SteamWorkshopAgent publish-prepared <requestPath>
+              SteamWorkshopAgent verify <requestPath> [--wait-seconds 0..180]
+              SteamWorkshopAgent private-validation [--confirm]
+              SteamWorkshopAgent private-validation-prepare [--confirm]
             """;
     }
 
@@ -169,5 +212,8 @@ internal static class Cli
         WorkshopTagUpdater WorkshopTagUpdater,
         WorkshopPublisher WorkshopPublisher,
         WorkshopDescriptionReader WorkshopDescriptionReader,
-        WorkshopDescriptionUpdater WorkshopDescriptionUpdater);
+        WorkshopDescriptionUpdater WorkshopDescriptionUpdater,
+        SteamworksPublisher SteamworksPublisher,
+        WorkshopPublishVerifier WorkshopPublishVerifier,
+        PrivateWorkshopValidator PrivateWorkshopValidator);
 }

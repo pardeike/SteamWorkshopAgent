@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>SteamWorkshopAgent.BridgeTools</AssemblyName>
+    <RootNamespace>SteamWorkshopAgent.BridgeTools</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>..\..\artifacts\BridgeTools\SteamWorkshopAgent\</OutputPath>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RimWorldAppPath Condition="'$(RimWorldAppPath)' == ''">$(HOME)/Library/Application Support/Steam/steamapps/common/RimWorld/RimWorldMac.app</RimWorldAppPath>
+    <RimWorldManagedDir>$(RimWorldAppPath)/Contents/Resources/Data/Managed</RimWorldManagedDir>
+    <RimBridgeAssembliesDir>$(RimWorldAppPath)/Mods/RimBridgeServer/1.6/Assemblies</RimBridgeAssembliesDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="RimBridgeServer.Sdk">
+      <HintPath>$(RimBridgeAssembliesDir)/RimBridgeServer.Sdk.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Steamworks.NET">
+      <HintPath>$(RimWorldManagedDir)/com.rlabrecque.steamworks.net.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(RimBridgeAssembliesDir)/Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

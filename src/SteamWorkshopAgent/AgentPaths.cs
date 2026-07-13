@@ -15,6 +15,10 @@ public static class AgentPaths
 
     public static string RunsDirectory => Path.Combine(AppSupportDirectory, "runs");
 
+    public static string SteamworksDirectory => Path.Combine(AppSupportDirectory, "steamworks");
+
+    public static string HeadlessProfileDirectory => Path.Combine(AppSupportDirectory, "rimworld-headless-profile");
+
     public static string NewRunDirectory(string modFileName, string tag)
     {
         var safeTag = MakeSafePathPart(tag);

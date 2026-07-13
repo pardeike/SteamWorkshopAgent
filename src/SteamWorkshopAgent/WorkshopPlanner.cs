@@ -44,8 +44,8 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
             .Concat(new[]
             {
                 new ValidationIssue(
-                    "steamcmd_tags_preserved",
-                    "SteamCMD workshop_build_item uploads content without replacing existing Workshop tags; tag submission is a separate optional step.",
+                    "workshop_tags_preserved",
+                    "Existing Workshop tags are preserved; release publishing does not refresh them.",
                     "info")
             })
             .ToList();
