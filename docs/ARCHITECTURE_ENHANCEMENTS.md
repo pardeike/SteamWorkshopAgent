@@ -53,7 +53,7 @@ The tag-only backend is used by:
 
 The correct RimWorld mod tag set is `Mod` plus the supported game versions from `About/About.xml`, for example `Mod` and `1.6`.
 
-The detached full-publisher path has been validated against the authenticated desktop Steam session on the current macOS setup. If a future session reports `SteamUser.BLoggedOn=false`, the agent stops before submission and offers the in-game companion request as the next backend; it does not select SteamCMD automatically.
+The detached full-publisher path has been validated against the authenticated desktop Steam session on the current macOS setup. If a future session reports `SteamUser.BLoggedOn=false` with the expected Steam ID and app ID, the agent reports `failureCode=desktop-session-offline` and `recoveryAction=restart-steam`. The guided workflow must fully quit and reopen Steam, wait for it to reconnect, and reprobe before attempting the in-game companion. This specifically covers SteamCMD replacing the desktop account session while leaving Steam's UI visible. The agent does not select SteamCMD automatically.
 
 ## Steamworks Publisher Backend
 

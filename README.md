@@ -121,6 +121,8 @@ Checks whether SteamCMD is installed for emergency use, whether RimWorld is inst
 
 Starts a short-lived detached helper process, initializes RimWorld's native Steam API, and reports whether the Steam desktop session authenticated it as app `294100`. It does not read or modify a Workshop item.
 
+`SteamUser.BLoggedOn=false` means the desktop client has no live Steam-server connection; a visible Steam window alone is not proof that the session is usable. If the probe returns `failureCode=desktop-session-offline` and `recoveryAction=restart-steam`, fully quit and reopen Steam, wait for it to reconnect, and probe again before starting RimWorld or selecting a fallback. A common cause is SteamCMD logging into the same account and replacing the desktop session while leaving Steam's UI open.
+
 `RimWorldModInspect`
 
 Reads a RimWorld mod source repository or already-deployed mod folder and returns the metadata needed for Workshop publishing.
@@ -148,6 +150,8 @@ Four-part mod versions with a trailing `.0` are shortened for the Steam heading 
 Publishes a confirmed release to Steam Workshop. `backend=auto` and `backend=standalone` prepare an owner-verified, expiring request, fingerprint the exact staged content, and submit it through a detached Steamworks helper. If desktop Steam does not authenticate that helper, the returned result has `fallbackAllowed=true` and can be submitted once through the RimBridge companion running inside RimWorld. Existing tags are preserved.
 
 `backend=steamcmd` is an explicit emergency path. It is never selected automatically and is the only release path that needs a SteamCMD username or cached SteamCMD credentials.
+
+Do not pre-authenticate or probe SteamCMD before trying the desktop backend. A SteamCMD login to the same account can replace the desktop client's live session. After an explicitly selected SteamCMD fallback completes, probe desktop Steam again and restart it if the fallback displaced its session.
 
 Source release builds always pass `BuildBridgeTools=false` so GitHub/Steam release artifacts contain only the main mod payload. Local validation builds can keep building companion BridgeTools by default.
 

@@ -17,6 +17,8 @@ namespace SteamWorkshopAgent.BridgeTools;
 public sealed class SteamWorkshopBridgeTools
 {
     private const uint RimWorldAppId = 294100;
+    private const string DesktopSessionOffline = "desktop-session-offline";
+    private const string RestartSteam = "restart-steam";
     private static readonly SemaphoreSlim PublishLock = new SemaphoreSlim(1, 1);
 
     [Tool(
@@ -42,7 +44,15 @@ public sealed class SteamWorkshopBridgeTools
                 ready = loggedOn && steamId != 0 && appId == RimWorldAppId,
                 message = loggedOn && steamId != 0 && appId == RimWorldAppId
                     ? "RimWorld's Steamworks session is ready to publish."
-                    : "RimWorld's Steamworks session is not publish-ready."
+                    : !loggedOn && steamId != 0 && appId == RimWorldAppId
+                        ? NotLoggedOnMessage("RimWorld's initialized Steamworks session")
+                        : "RimWorld's Steamworks session is not publish-ready.",
+                failureCode = !loggedOn && steamId != 0 && appId == RimWorldAppId
+                    ? DesktopSessionOffline
+                    : null,
+                recoveryAction = !loggedOn && steamId != 0 && appId == RimWorldAppId
+                    ? RestartSteam
+                    : null
             };
         }, cancellationToken);
     }
@@ -69,7 +79,9 @@ public sealed class SteamWorkshopBridgeTools
             var session = await ctx.MainThread.InvokeAsync(ReadSession, cancellationToken).ConfigureAwait(false);
             if (!session.LoggedOn)
                 return await PersistAsync(request, Failure(requestPath, request, "session", false, session,
-                    "RimWorld's Steamworks session is not logged on. No submission was started.", stopwatch.ElapsedMilliseconds)).ConfigureAwait(false);
+                    NotLoggedOnMessage("RimWorld's initialized Steamworks session"), stopwatch.ElapsedMilliseconds,
+                    failureCode: DesktopSessionOffline,
+                    recoveryAction: RestartSteam)).ConfigureAwait(false);
             if (session.SteamId != request.ExpectedCreatorSteamId)
                 return await PersistAsync(request, Failure(requestPath, request, "ownership", false, session,
                     $"Refusing to publish as Steam account {session.SteamId}; Workshop item creator is {request.ExpectedCreatorSteamId}.",
@@ -316,7 +328,9 @@ public sealed class SteamWorkshopBridgeTools
         SessionState session,
         string message,
         long durationMs,
-        bool? fallbackAllowed = null)
+        bool? fallbackAllowed = null,
+        string failureCode = null,
+        string recoveryAction = null)
     {
         return new PublishResult
         {
@@ -335,7 +349,9 @@ public sealed class SteamWorkshopBridgeTools
             RequestPath = requestPath,
             ResultPath = request.ResultPath,
             WorkshopUrl = WorkshopUrl(request.PublishedFileId),
-            Message = message
+            Message = message,
+            FailureCode = failureCode,
+            RecoveryAction = recoveryAction
         };
     }
 
@@ -372,6 +388,14 @@ public sealed class SteamWorkshopBridgeTools
     private static string WorkshopUrl(ulong publishedFileId)
     {
         return $"https://steamcommunity.com/sharedfiles/filedetails/?id={publishedFileId}";
+    }
+
+    private static string NotLoggedOnMessage(string subject)
+    {
+        return subject + " has no live connection to the Steam servers. "
+            + "If Steam is visibly open, another login—especially SteamCMD using the same account—may have replaced the desktop session. "
+            + "Fully quit and reopen Steam, wait for it to reconnect, and run the desktop session probe again before starting another RimWorld process or selecting SteamCMD fallback. "
+            + "No submission was started.";
     }
 
     [DllImport("libc", SetLastError = true)]
@@ -445,5 +469,7 @@ public sealed class SteamWorkshopBridgeTools
         public string ResultPath { get; set; }
         public string WorkshopUrl { get; set; }
         public string Message { get; set; }
+        public string FailureCode { get; set; }
+        public string RecoveryAction { get; set; }
     }
 }

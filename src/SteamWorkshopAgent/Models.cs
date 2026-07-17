@@ -126,7 +126,9 @@ public sealed record SteamSessionProbeResult(
     uint? SteamAppId,
     string? NativeLibraryPath,
     bool Ready,
-    string Message);
+    string Message,
+    string? FailureCode = null,
+    string? RecoveryAction = null);
 
 public sealed record WorkshopPublishBackendResult(
     string Backend,
@@ -150,7 +152,9 @@ public sealed record WorkshopPublishBackendResult(
     string ResultPath,
     string WorkshopUrl,
     string Message,
-    WorkshopReleasePlan? Plan = null);
+    WorkshopReleasePlan? Plan = null,
+    string? FailureCode = null,
+    string? RecoveryAction = null);
 
 public sealed record WorkshopPublishVerificationResult(
     bool Success,

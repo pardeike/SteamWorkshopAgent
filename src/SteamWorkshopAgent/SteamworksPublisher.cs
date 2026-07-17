@@ -88,12 +88,17 @@ public sealed class SteamworksPublisher(
             var steamId = steam.GetSteamId();
             var appId = steam.GetAppId();
             var ready = loggedOn && steamId != 0 && appId == AgentPaths.RimWorldAppId;
+            var desktopSessionOffline = !loggedOn && steamId != 0 && appId == AgentPaths.RimWorldAppId;
             return new SteamSessionProbeResult(
                 "steamworks-standalone", true, true, loggedOn, steamId == 0 ? null : steamId, appId,
                 nativeLibraryPath, ready,
                 ready
                     ? "The detached helper is authenticated through the Steam desktop session and ready to publish."
-                    : $"Steamworks initialized but is not publish-ready. LoggedOn={loggedOn}; SteamId={steamId}; AppId={appId}.");
+                    : desktopSessionOffline
+                        ? SteamSessionRecovery.NotLoggedOnMessage("The initialized desktop Steam session")
+                        : $"Steamworks initialized but is not publish-ready. LoggedOn={loggedOn}; SteamId={steamId}; AppId={appId}.",
+                FailureCode: desktopSessionOffline ? SteamSessionRecovery.DesktopSessionOffline : null,
+                RecoveryAction: desktopSessionOffline ? SteamSessionRecovery.RestartSteam : null);
         }
         finally
         {
@@ -130,7 +135,10 @@ public sealed class SteamworksPublisher(
                 if (!loggedOn)
                     return await PersistAsync(Failure(
                         request, requestPath, "session", false, true, false, steamId, appId,
-                        "Steamworks initialized, but SteamUser.BLoggedOn returned false. No submission was started.", stopwatch.ElapsedMilliseconds));
+                        SteamSessionRecovery.NotLoggedOnMessage("The initialized desktop Steam session"),
+                        stopwatch.ElapsedMilliseconds,
+                        failureCode: SteamSessionRecovery.DesktopSessionOffline,
+                        recoveryAction: SteamSessionRecovery.RestartSteam));
                 if (steamId != request.ExpectedCreatorSteamId)
                     return await PersistAsync(Failure(
                         request, requestPath, "ownership", false, true, true, steamId, appId,
@@ -389,7 +397,9 @@ public sealed class SteamworksPublisher(
         uint? steamAppId,
         string message,
         long durationMs = 0,
-        bool? fallbackAllowed = null)
+        bool? fallbackAllowed = null,
+        string? failureCode = null,
+        string? recoveryAction = null)
     {
         return new WorkshopPublishBackendResult(
             "steamworks-standalone",
@@ -412,7 +422,10 @@ public sealed class SteamworksPublisher(
             requestPath,
             request.ResultPath,
             WorkshopUrl(request.PublishedFileId),
-            message);
+            message,
+            Plan: null,
+            FailureCode: failureCode,
+            RecoveryAction: recoveryAction);
     }
 
     private static string WorkshopUrl(ulong publishedFileId)

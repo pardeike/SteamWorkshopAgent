@@ -18,7 +18,7 @@ public static class SteamTools
         });
     }
 
-    [McpServerTool, Description("Probe whether a detached helper can use the logged-on Steam desktop session as RimWorld. Does not modify Workshop state.")]
+    [McpServerTool, Description("Probe whether a detached helper can use the logged-on Steam desktop session as RimWorld. Does not modify Workshop state. If recoveryAction is restart-steam, fully quit and reopen desktop Steam, wait for it to reconnect, and probe again before using any fallback backend.")]
     public static Task<string> SteamSessionProbe()
     {
         return ToolJson.TryAsync(async () =>
