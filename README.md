@@ -67,12 +67,35 @@ That token is used only by the explicit SteamCMD fallback. Never pass passwords 
 
 Routine updates preserve the Workshop item's existing category tags. The separate tag maintenance tool calls RimWorld's local Steamworks UGC path, using RimWorld app id `294100` and the native Steam API library bundled with the installed RimWorld app. It requires the desktop Steam client session to be logged on from Steamworks' point of view.
 
+On Windows, native-library discovery reads `HKCU\Software\Valve\Steam\SteamPath`
+(falling back to `C:\Program Files (x86)\Steam`), then the Steam libraries in
+`steamapps\libraryfolders.vdf`. It uses the library containing
+`appmanifest_294100.acf` and RimWorld's `steam_api64.dll`, including older Unity
+plugin locations. `STEAMWORKS_NATIVE_LIB` still overrides discovery.
+Run records use `%LOCALAPPDATA%\SteamWorkshopAgent` on Windows; macOS keeps
+`~/Library/Application Support/SteamWorkshopAgent`. The companion uses the same
+root and `STEAM_WORKSHOP_AGENT_DATA_ROOT` override. PATH discovery honors
+Windows `PATHEXT`.
+
 ## Build And Test
 
 ```sh
 dotnet build SteamWorkshopAgent.slnx -c Release
 dotnet test SteamWorkshopAgent.slnx
 ```
+
+Without game references, run the unit tests and the companion's shared-source
+compile check separately:
+
+```sh
+dotnet test tests/SteamWorkshopAgent.Tests/SteamWorkshopAgent.Tests.csproj -c Release
+dotnet build tests/SharedSources.Net472/SharedSources.Net472.csproj -c Release
+```
+
+The compile check reads every linked source from the companion project and
+builds it against net472 reference assemblies with nullable analysis and
+warnings as errors. It is also included in the solution. It does not load Steam
+or require game assemblies; the reference-assemblies package restores from NuGet.
 
 ## Local Install
 
@@ -162,6 +185,23 @@ Publishes an already-built deployed mod folder through the same prepared-request
 `WorkshopPublishPrepared`
 
 Submits a still-valid prepared request through the detached helper. The request must live under the agent's run directory and its content fingerprint must still match.
+The parent, detached helper and companion refuse a request whose result records
+submit intent, submission, an ambiguous outcome or completion. Read back the
+Workshop item instead; `verify` remains available. An unreadable result also
+fails closed. Only a proven pre-submission failure remains eligible for fallback.
+Every standalone helper and companion attempt first creates an exclusive,
+per-request `steamworks-request.json.claim` file with its PID and UTC time.
+Atomic `CreateNew` prevents competing processes from both reaching validation
+and submission. A known, definitive pre-submit failure with
+`submissionStarted=false` preserves the backend's `fallbackAllowed` value.
+The holder writes and flushes that result to disk before releasing its claim,
+so the companion or a later submitter can claim and revalidate the same request.
+For example, failed standalone Steam initialization can hand the unchanged
+content to the authenticated companion. An ownership failure still returns
+`fallbackAllowed=false`.
+Submit intent, submitted, ambiguous, completed, validation failure, an exception,
+a timeout or an unknown stage keeps the claim. It never expires by age or PID.
+An existing claim means refuse and read back the Workshop item.
 
 `WorkshopVerifyAfterPublish`
 
@@ -200,7 +240,7 @@ The preferred publish path is intentionally conservative:
 5. Record the current Workshop creator id and a deterministic digest of every staged content path and byte.
 6. Start a detached helper session with `setsid()`, verify app id and Steam account ownership, and apply title, optional description, preview, and content before `SubmitItemUpdate`.
 7. Persist a no-fallback `submit-intent` marker before calling `SubmitItemUpdate`, then a `submitted` marker after receiving a valid API call handle. This survives helper crashes and terminal disconnects.
-8. Allow a fallback only before the durable intent marker exists. Once submission may have started, a timeout or exception is ambiguous and automatic retry is forbidden.
+8. Allow fallback only for a known, definitive pre-submit failure after its result is flushed and the holder releases its claim. An intent marker or any possible submission blocks fallback; a timeout or exception never releases the claim.
 9. Persist `steamworks-result.json` with owner-only permissions and verify public Workshop state.
 
 The release tag must exist locally so Git can create the detached worktree. If the agent reports that the tag cannot be resolved, run `git fetch --tags` in the mod repository and retry.

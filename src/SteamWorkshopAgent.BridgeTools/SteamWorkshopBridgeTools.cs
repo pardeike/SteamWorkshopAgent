@@ -71,6 +71,8 @@ public sealed class SteamWorkshopBridgeTools
         if (!confirm)
             throw new InvalidOperationException("confirm=true is required to submit a prepared Workshop update.");
 
+        using var claim = PublishRequestClaim.Acquire(requestPath,
+            Path.Combine(AgentDataPath.GetAppSupportDirectory(), "runs"));
         await PublishLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -78,16 +80,16 @@ public sealed class SteamWorkshopBridgeTools
             var request = await ReadAndValidateRequestAsync(requestPath, requestId).ConfigureAwait(false);
             var session = await ctx.MainThread.InvokeAsync(ReadSession, cancellationToken).ConfigureAwait(false);
             if (!session.LoggedOn)
-                return await PersistAsync(request, Failure(requestPath, request, "session", false, session,
+                return await PersistAsync(claim, request, Failure(requestPath, request, "session", false, session,
                     NotLoggedOnMessage("RimWorld's initialized Steamworks session"), stopwatch.ElapsedMilliseconds,
                     failureCode: DesktopSessionOffline,
                     recoveryAction: RestartSteam)).ConfigureAwait(false);
             if (session.SteamId != request.ExpectedCreatorSteamId)
-                return await PersistAsync(request, Failure(requestPath, request, "ownership", false, session,
+                return await PersistAsync(claim, request, Failure(requestPath, request, "ownership", false, session,
                     $"Refusing to publish as Steam account {session.SteamId}; Workshop item creator is {request.ExpectedCreatorSteamId}.",
                     stopwatch.ElapsedMilliseconds, fallbackAllowed: false)).ConfigureAwait(false);
             if (session.AppId != request.AppId)
-                return await PersistAsync(request, Failure(requestPath, request, "app-id", false, session,
+                return await PersistAsync(claim, request, Failure(requestPath, request, "app-id", false, session,
                     $"Refusing to publish through unexpected Steam app id {session.AppId}.", stopwatch.ElapsedMilliseconds)).ConfigureAwait(false);
 
             UGCUpdateHandle_t updateHandle = UGCUpdateHandle_t.Invalid;
@@ -118,11 +120,11 @@ public sealed class SteamWorkshopBridgeTools
             if (setupFailure != null)
             {
                 callResult?.Dispose();
-                return await PersistAsync(request, Failure(requestPath, request, "setup", false, session,
+                return await PersistAsync(claim, request, Failure(requestPath, request, "setup", false, session,
                     setupFailure + " No submission was started.", stopwatch.ElapsedMilliseconds)).ConfigureAwait(false);
             }
 
-            await PersistAsync(request, Uncertain(
+            await PersistAsync(claim, request, Uncertain(
                 requestPath, request, "submit-intent", false, session, stopwatch.ElapsedMilliseconds,
                 "SubmitItemUpdate is about to be called. Automatic fallback is disabled until a definitive result is persisted.")).ConfigureAwait(false);
 
@@ -140,11 +142,11 @@ public sealed class SteamWorkshopBridgeTools
             if (submitFailure != null)
             {
                 callResult?.Dispose();
-                return await PersistAsync(request, Failure(requestPath, request, "submit", false, session,
+                return await PersistAsync(claim, request, Failure(requestPath, request, "submit", false, session,
                     submitFailure + " No submission was started.", stopwatch.ElapsedMilliseconds)).ConfigureAwait(false);
             }
 
-            await PersistAsync(request, Uncertain(
+            await PersistAsync(claim, request, Uncertain(
                 requestPath, request, "submitted", true, session, stopwatch.ElapsedMilliseconds,
                 "SubmitItemUpdate returned a valid API call handle. Verify state and never fall back automatically unless a definitive result replaces this marker.")).ConfigureAwait(false);
 
@@ -160,7 +162,7 @@ public sealed class SteamWorkshopBridgeTools
 
                 if (!callbackCompletion.Task.IsCompleted)
                 {
-                    return await PersistAsync(request, new PublishResult
+                    return await PersistAsync(claim, request, new PublishResult
                     {
                         Backend = "rimworld-steamworks",
                         Stage = "callback-timeout",
@@ -187,7 +189,7 @@ public sealed class SteamWorkshopBridgeTools
                 var completion = await callbackCompletion.Task.ConfigureAwait(false);
                 progress = await ctx.MainThread.InvokeAsync(() => ReadProgress(updateHandle), CancellationToken.None).ConfigureAwait(false);
                 var success = !completion.IoFailure && completion.Result.m_eResult == EResult.k_EResultOK;
-                return await PersistAsync(request, new PublishResult
+                return await PersistAsync(claim, request, new PublishResult
                 {
                     Backend = "rimworld-steamworks",
                     Stage = "completed",
@@ -246,10 +248,9 @@ public sealed class SteamWorkshopBridgeTools
     private static async Task<PublishRequest> ReadAndValidateRequestAsync(string requestPath, string requestId)
     {
         var fullPath = Path.GetFullPath(requestPath);
-        var runsRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.Personal),
-            "Library", "Application Support", "SteamWorkshopAgent", "runs") + Path.DirectorySeparatorChar;
-        if (!fullPath.StartsWith(runsRoot, StringComparison.Ordinal))
+        var runsRoot = Path.GetFullPath(Path.Combine(
+            AgentDataPath.GetAppSupportDirectory(), "runs")) + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(runsRoot, AgentDataPath.PathComparison))
             throw new InvalidOperationException("Workshop publish requests must be stored under the SteamWorkshopAgent runs directory.");
 
         var request = JsonConvert.DeserializeObject<PublishRequest>(File.ReadAllText(fullPath));
@@ -263,8 +264,25 @@ public sealed class SteamWorkshopBridgeTools
             throw new InvalidOperationException("The Workshop request contains invalid app, item, or creator ids.");
         if (!Directory.Exists(request.ContentFolder) || !File.Exists(request.PreviewFile))
             throw new InvalidOperationException("The prepared content folder or preview file no longer exists.");
-        if (!Path.GetFullPath(request.ResultPath).StartsWith(runsRoot, StringComparison.Ordinal))
+        if (!Path.GetFullPath(request.ResultPath).StartsWith(runsRoot, AgentDataPath.PathComparison))
             throw new InvalidOperationException("The Workshop result path is outside the SteamWorkshopAgent runs directory.");
+        if (File.Exists(request.ResultPath))
+        {
+            PublishResult previous;
+            try
+            {
+                previous = JsonConvert.DeserializeObject<PublishResult>(File.ReadAllText(request.ResultPath));
+            }
+            catch (JsonException exception)
+            {
+                throw new InvalidOperationException(
+                    "The previous publish result is unreadable. Read back the Workshop item instead of resubmitting.",
+                    exception);
+            }
+            PublishReplayGuard.EnsureCanSubmit(
+                previous?.Stage, previous?.Success ?? false,
+                previous?.SubmissionStarted ?? false, previous?.OutcomeDefinitive ?? false);
+        }
 
         var digest = await ComputeContentDigestAsync(request.ContentFolder).ConfigureAwait(false);
         if (!string.Equals(digest, request.ContentDigest, StringComparison.Ordinal))
@@ -307,17 +325,35 @@ public sealed class SteamWorkshopBridgeTools
         }
     }
 
-    private static Task<PublishResult> PersistAsync(PublishRequest request, PublishResult result)
+    private static async Task<PublishResult> PersistAsync(
+        PublishRequestClaim claim, PublishRequest request, PublishResult result)
     {
+        if (result.FallbackAllowed && !PublishReplayGuard.IsProvenPreSubmitFailure(
+                result.Stage, result.Success, result.SubmissionStarted, result.OutcomeDefinitive))
+        {
+            result.FallbackAllowed = false;
+            result.Message += " The outcome does not prove submission never started. Read back the Workshop item.";
+        }
         var settings = new JsonSerializerSettings
         {
             ContractResolver = new CamelCasePropertyNamesContractResolver(),
             NullValueHandling = NullValueHandling.Ignore
         };
-        File.WriteAllText(request.ResultPath, JsonConvert.SerializeObject(result, settings));
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            chmod(request.ResultPath, Convert.ToUInt32("600", 8));
-        return Task.FromResult(result);
+        await claim.PersistResultAsync(result.Stage, result.Success, result.SubmissionStarted,
+            result.OutcomeDefinitive, () =>
+            {
+                using (var stream = new FileStream(request.ResultPath, FileMode.Create, FileAccess.Write, FileShare.Read))
+                using (var writer = new StreamWriter(stream, new UTF8Encoding(false), 1024, leaveOpen: true))
+                {
+                    writer.Write(JsonConvert.SerializeObject(result, settings));
+                    writer.Flush();
+                    stream.Flush(flushToDisk: true);
+                }
+                if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                    chmod(request.ResultPath, Convert.ToUInt32("600", 8));
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+        return result;
     }
 
     private static PublishResult Failure(

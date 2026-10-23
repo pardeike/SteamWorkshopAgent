@@ -6,6 +6,15 @@ namespace SteamWorkshopAgent;
 
 public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
 {
+    private readonly string? runsDirectoryOverride;
+    internal string RunsDirectory => runsDirectoryOverride ?? AgentPaths.RunsDirectory;
+
+    internal WorkshopPublishRequestStore(ProcessRunner processRunner, string runsDirectory)
+        : this(processRunner)
+    {
+        runsDirectoryOverride = runsDirectory;
+    }
+
     public async Task<WorkshopPublishPreparation> CreateAsync(
         WorkshopReleasePlan plan,
         ulong expectedCreatorSteamId)
@@ -96,6 +105,7 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
     public async Task<WorkshopPublishRequest> ReadAndValidateAsync(string requestPath)
     {
         var request = await ReadForVerificationAsync(requestPath);
+        await ThrowIfPreviouslySubmittedAsync(request.ResultPath);
 
         if (request.ExpiresAtUtc <= DateTimeOffset.UtcNow)
             throw new InvalidOperationException("The Workshop publish request has expired. Create a fresh release plan.");
@@ -111,11 +121,32 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
         return request;
     }
 
+    private static async Task ThrowIfPreviouslySubmittedAsync(string resultPath)
+    {
+        if (!File.Exists(resultPath))
+            return;
+        WorkshopPublishBackendResult? result;
+        try
+        {
+            result = JsonSerializer.Deserialize<WorkshopPublishBackendResult>(
+                await File.ReadAllTextAsync(resultPath), ToolJson.Options);
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidOperationException(
+                "The previous publish result is unreadable. Read back the Workshop item instead of resubmitting.",
+                exception);
+        }
+        PublishReplayGuard.EnsureCanSubmit(
+            result?.Stage, result?.Success ?? false,
+            result?.SubmissionStarted ?? false, result?.OutcomeDefinitive ?? false);
+    }
+
     public async Task<WorkshopPublishRequest> ReadForVerificationAsync(string requestPath)
     {
         var fullPath = Path.GetFullPath(requestPath);
-        var runsRoot = Path.GetFullPath(AgentPaths.RunsDirectory) + Path.DirectorySeparatorChar;
-        if (!fullPath.StartsWith(runsRoot, StringComparison.Ordinal))
+        var runsRoot = Path.GetFullPath(runsDirectoryOverride ?? AgentPaths.RunsDirectory) + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(runsRoot, AgentDataPath.PathComparison))
             throw new InvalidOperationException("Workshop publish requests must be stored under the SteamWorkshopAgent runs directory.");
 
         var request = JsonSerializer.Deserialize<WorkshopPublishRequest>(
@@ -128,7 +159,7 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
             throw new InvalidOperationException($"Refusing to use a request for unexpected Steam app id {request.AppId}.");
         if (request.PublishedFileId == 0 || request.ExpectedCreatorSteamId == 0)
             throw new InvalidOperationException("The Workshop item and expected creator ids must be nonzero.");
-        if (!Path.GetFullPath(request.ResultPath).StartsWith(runsRoot, StringComparison.Ordinal))
+        if (!Path.GetFullPath(request.ResultPath).StartsWith(runsRoot, AgentDataPath.PathComparison))
             throw new InvalidOperationException("The Workshop result path must be stored under the SteamWorkshopAgent runs directory.");
         return request;
     }
@@ -176,7 +207,11 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
     private static async Task WriteOwnerOnlyJsonAsync<T>(string path, T value)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(value, ToolJson.Options));
+        using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read,
+            4096, FileOptions.Asynchronous);
+        await JsonSerializer.SerializeAsync(stream, value, ToolJson.Options);
+        await stream.FlushAsync();
+        stream.Flush(flushToDisk: true);
         if (!OperatingSystem.IsWindows())
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
