@@ -90,15 +90,17 @@ This workspace follows the same local MCP install pattern as the active `gabs` a
 
 ```sh
 make install
+make install REMOTE=macbook-air
 ```
 
 The install target writes:
 
 ```text
 ~/.codex/mcp-servers/steam-workshop-agent/SteamWorkshopAgent
+~/Library/Application Support/Steam/steamapps/common/RimWorld/BridgeTools/SteamWorkshopAgent/SteamWorkshopAgent.BridgeTools.dll
 ```
 
-Local redeploys should overwrite that binary in place. Do not point MCP config at repo-local build output.
+It copies each file under a temporary name and renames it over the installed path. Overwriting a running binary in place makes macOS kill every new launch. The agent and the companion both check the content digest, so install them together. With `REMOTE`, the target builds here, runs `git pull` in the remote checkout and copies the files over ssh. The remote Mac needs no .NET SDK. It prints `ok` after the installed binary passes `status`. Do not point MCP config at repo-local build output. Running MCP sessions keep the old binary until they restart.
 
 ## MCP Client Launch
 
