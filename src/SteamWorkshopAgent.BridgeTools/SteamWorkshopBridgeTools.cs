@@ -155,7 +155,7 @@ public sealed class SteamWorkshopBridgeTools
                 while (!callbackCompletion.Task.IsCompleted && DateTime.UtcNow < deadline)
                 {
                     await ctx.Game.NextFrameAsync(CancellationToken.None).ConfigureAwait(false);
-                    progress = await ctx.MainThread.InvokeAsync(() => ReadProgress(updateHandle), CancellationToken.None).ConfigureAwait(false);
+                    progress = Latest(progress, await ctx.MainThread.InvokeAsync(() => ReadProgress(updateHandle), CancellationToken.None).ConfigureAwait(false));
                 }
 
                 if (!callbackCompletion.Task.IsCompleted)
@@ -185,7 +185,7 @@ public sealed class SteamWorkshopBridgeTools
                 }
 
                 var completion = await callbackCompletion.Task.ConfigureAwait(false);
-                progress = await ctx.MainThread.InvokeAsync(() => ReadProgress(updateHandle), CancellationToken.None).ConfigureAwait(false);
+                progress = Latest(progress, await ctx.MainThread.InvokeAsync(() => ReadProgress(updateHandle), CancellationToken.None).ConfigureAwait(false));
                 var success = !completion.IoFailure && completion.Result.m_eResult == EResult.k_EResultOK;
                 return await PersistAsync(request, new PublishResult
                 {
@@ -234,6 +234,10 @@ public sealed class SteamWorkshopBridgeTools
             AppId = SteamUtils.GetAppID().m_AppId
         };
     }
+
+    // Steam reports Invalid once an update has finished. Keep the last live sample instead.
+    private static UploadProgress Latest(UploadProgress previous, UploadProgress sample) =>
+        sample.Status == nameof(EItemUpdateStatus.k_EItemUpdateStatusInvalid) && previous.Status != null ? previous : sample;
 
     private static UploadProgress ReadProgress(UGCUpdateHandle_t updateHandle)
     {

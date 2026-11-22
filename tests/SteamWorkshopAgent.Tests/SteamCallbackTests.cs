@@ -73,4 +73,13 @@ public sealed class SteamCallbackTests
             Marshal.FreeHGlobal(buffer);
         }
     }
+
+    [Fact]
+    public void Progress_Keeps_Last_Live_Sample_After_Steam_Resets_It()
+    {
+        var uploading = new SteamItemUpdateProgress("UploadingContent", 10, 20);
+        Assert.Equal(uploading, new SteamItemUpdateProgress("Invalid", 0, 0).Or(uploading));
+        var committing = new SteamItemUpdateProgress("CommittingChanges", 20, 20);
+        Assert.Equal(committing, committing.Or(uploading));
+    }
 }

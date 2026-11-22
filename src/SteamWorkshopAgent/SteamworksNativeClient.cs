@@ -291,7 +291,11 @@ internal sealed class SteamworksNativeClient : IDisposable
     }
 }
 
-internal readonly record struct SteamItemUpdateProgress(string Status, ulong BytesProcessed, ulong BytesTotal);
+internal readonly record struct SteamItemUpdateProgress(string Status, ulong BytesProcessed, ulong BytesTotal)
+{
+    // Steam reports Invalid once an update has finished. Keep the last live sample instead.
+    public SteamItemUpdateProgress Or(SteamItemUpdateProgress previous) => Status == "Invalid" ? previous : this;
+}
 
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
 internal struct SteamSubmitItemUpdateResult

@@ -229,7 +229,7 @@ public sealed class SteamworksPublisher(
                     steam.RunCallbacks();
                     if (steam.TryGetSubmitItemUpdateResult(apiCall, out var submit, out var ioFailure))
                     {
-                        progress = steam.GetItemUpdateProgress(updateHandle);
+                        progress = steam.GetItemUpdateProgress(updateHandle).Or(progress);
                         var submitResult = SteamworksNativeClient.FormatResult(submit.Result);
                         var success = !ioFailure && submit.Result == 1;
                         return await PersistAsync(new WorkshopPublishBackendResult(
@@ -258,7 +258,7 @@ public sealed class SteamworksPublisher(
                                 : $"SteamUGC.SubmitItemUpdate returned {submitResult}; IOFailure={ioFailure}."));
                     }
 
-                    progress = steam.GetItemUpdateProgress(updateHandle);
+                    progress = steam.GetItemUpdateProgress(updateHandle).Or(progress);
                     await Task.Delay(100);
                 }
 
